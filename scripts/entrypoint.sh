@@ -6,55 +6,53 @@ PORT=${PORT:-443}
 TXT_PREFIX=${TXT_PREFIX:-"_dstack-app-address"}
 PROXY_CMD="proxy"
 if [[ "${TARGET_ENDPOINT}" == grpc://* ]]; then
-    PROXY_CMD="grpc"
+	PROXY_CMD="grpc"
 fi
 
-echo "Setting up certbot environment"
-
 setup_py_env() {
-    if [ ! -d /opt/app-venv ]; then
-        echo "Creating application virtual environment"
-        python3 -m venv --system-site-packages /opt/app-venv
-    fi
+	if [ ! -d /opt/app-venv ]; then
+		echo "Creating application virtual environment"
+		python3 -m venv --system-site-packages /opt/app-venv
+	fi
 
-    # Activate venv for subsequent steps
-    # shellcheck disable=SC1091
-    source /opt/app-venv/bin/activate
+	# Activate venv for subsequent steps
+	# shellcheck disable=SC1091
+	source /opt/app-venv/bin/activate
 
-    if [ ! -f /.venv_bootstrapped ]; then
-        echo "Bootstrapping certbot dependencies"
-        pip install --upgrade pip
-        pip install certbot requests
-        touch /.venv_bootstrapped
-    fi
+	if [ ! -f /.venv_bootstrapped ]; then
+		echo "Bootstrapping certbot dependencies"
+		pip install --upgrade pip
+		pip install certbot requests
+		touch /.venv_bootstrapped
+	fi
 
-    ln -sf /opt/app-venv/bin/certbot /usr/local/bin/certbot
-    echo 'source /opt/app-venv/bin/activate' > /etc/profile.d/app-venv.sh
+	ln -sf /opt/app-venv/bin/certbot /usr/local/bin/certbot
+	echo 'source /opt/app-venv/bin/activate' >/etc/profile.d/app-venv.sh
 }
 
 setup_certbot_env() {
-    # Ensure the virtual environment is active for certbot configuration
-    # shellcheck disable=SC1091
-    source /opt/app-venv/bin/activate
+	# Ensure the virtual environment is active for certbot configuration
+	# shellcheck disable=SC1091
+	source /opt/app-venv/bin/activate
 
-    # Use the unified certbot manager to install plugins and setup credentials
-    echo "Installing DNS plugins and setting up credentials"
-    certman.py setup
-    if [ $? -ne 0 ]; then
-        echo "Error: Failed to setup certbot environment"
-        exit 1
-    fi
+	# Use the unified certbot manager to install plugins and setup credentials
+	echo "Installing DNS plugins and setting up credentials"
+	certman.py setup
+	if [ $? -ne 0 ]; then
+		echo "Error: Failed to setup certbot environment"
+		exit 1
+	fi
 }
 
 setup_py_env
 
 setup_nginx_conf() {
-    local client_max_body_size_conf=""
-    if [ -n "$CLIENT_MAX_BODY_SIZE" ]; then
-        client_max_body_size_conf="    client_max_body_size ${CLIENT_MAX_BODY_SIZE};"
-    fi
+	local client_max_body_size_conf=""
+	if [ -n "$CLIENT_MAX_BODY_SIZE" ]; then
+		client_max_body_size_conf="    client_max_body_size ${CLIENT_MAX_BODY_SIZE};"
+	fi
 
-    cat <<EOF >/etc/nginx/conf.d/default.conf
+	cat <<EOF >/etc/nginx/conf.d/default.conf
 server {
     listen ${PORT} ssl;
     http2 on;
@@ -134,126 +132,203 @@ EOF
 }
 
 set_alias_record() {
-    local domain="$1"
-    echo "Setting alias record for $domain"
-    dnsman.py set_alias \
-        --domain "$domain" \
-        --content "$GATEWAY_DOMAIN"
+	local domain="$1"
+	echo "Setting alias record for $domain"
+	dnsman.py set_alias \
+		--domain "$domain" \
+		--content "$GATEWAY_DOMAIN"
 
-    if [ $? -ne 0 ]; then
-        echo "Error: Failed to set alias record for $domain"
-        exit 1
-    fi
-    echo "Alias record set for $domain"
+	if [ $? -ne 0 ]; then
+		echo "Error: Failed to set alias record for $domain"
+		exit 1
+	fi
+	echo "Alias record set for $domain"
 }
 
 set_txt_record() {
-    local domain="$1"
-    local APP_ID
+	local domain="$1"
+	local APP_ID
 
-    if [[ -S /var/run/dstack.sock ]]; then
-        DSTACK_APP_ID=$(curl -s --unix-socket /var/run/dstack.sock http://localhost/Info | jq -j .app_id)
-        export DSTACK_APP_ID
-    else
-        DSTACK_APP_ID=$(curl -s --unix-socket /var/run/tappd.sock http://localhost/prpc/Tappd.Info | jq -j .app_id)
-        export DSTACK_APP_ID
-    fi
-    APP_ID=${APP_ID:-"$DSTACK_APP_ID"}
+	if [[ -S /var/run/dstack.sock ]]; then
+		DSTACK_APP_ID=$(curl -s --unix-socket /var/run/dstack.sock http://localhost/Info | jq -j .app_id)
+		export DSTACK_APP_ID
+	else
+		DSTACK_APP_ID=$(curl -s --unix-socket /var/run/tappd.sock http://localhost/prpc/Tappd.Info | jq -j .app_id)
+		export DSTACK_APP_ID
+	fi
+	APP_ID=${APP_ID:-"$DSTACK_APP_ID"}
 
-    dnsman.py set_txt \
-        --domain "${TXT_PREFIX}.${domain}" \
-        --content "$APP_ID:$PORT"
+	dnsman.py set_txt \
+		--domain "${TXT_PREFIX}.${domain}" \
+		--content "$APP_ID:$PORT"
 
-    if [ $? -ne 0 ]; then
-        echo "Error: Failed to set TXT record for $domain"
-        exit 1
-    fi
+	if [ $? -ne 0 ]; then
+		echo "Error: Failed to set TXT record for $domain"
+		exit 1
+	fi
 }
 
 set_caa_record() {
-    local domain="$1"
-    if [ "$SET_CAA" != "true" ]; then
-        echo "Skipping CAA record setup"
-        return
-    fi
-    echo "Adding CAA record for $domain"
-    dnsman.py set_caa \
-        --domain "$domain" \
-        --caa-tag "issue" \
-        --caa-value "letsencrypt.org;validationmethods=dns-01"
+	local domain="$1"
+	if [ "$SET_CAA" != "true" ]; then
+		echo "Skipping CAA record setup"
+		return
+	fi
+	echo "Adding CAA record for $domain"
+	dnsman.py set_caa \
+		--domain "$domain" \
+		--caa-tag "issue" \
+		--caa-value "letsencrypt.org;validationmethods=dns-01"
 
-    if [ $? -ne 0 ]; then
-        echo "Warning: Failed to set CAA record for $domain"
-        echo "This is not critical - certificates can still be issued without CAA records"
-        echo "Consider disabling CAA records by setting SET_CAA=false if this continues to fail"
-        # Don't exit - CAA records are optional for certificate generation
-    fi
+	if [ $? -ne 0 ]; then
+		echo "Warning: Failed to set CAA record for $domain"
+		echo "This is not critical - certificates can still be issued without CAA records"
+		echo "Consider disabling CAA records by setting SET_CAA=false if this continues to fail"
+		# Don't exit - CAA records are optional for certificate generation
+	fi
 }
 
 process_domain() {
-    local domain="$1"
-    echo "Processing domain: $domain"
+	local domain="$1"
+	echo "Processing domain: $domain"
 
-    set_alias_record "$domain"
-    set_txt_record "$domain"
-    renew-certificate.sh "$domain" || echo "First certificate renewal failed for $domain, will retry after set CAA record"
-    set_caa_record "$domain"
-    renew-certificate.sh "$domain"
+	set_alias_record "$domain"
+	set_txt_record "$domain"
+	renew-certificate.sh "$domain" || echo "First certificate renewal failed for $domain, will retry after set CAA record"
+	set_caa_record "$domain"
+	renew-certificate.sh "$domain"
 }
 
 bootstrap() {
-    echo "Bootstrap: Setting up domains"
+	echo "Bootstrap: Setting up domains"
 
-    local all_domains
-    all_domains=$(get-all-domains.sh)
+	local all_domains
+	all_domains=$(get-all-domains.sh)
 
-    if [ -z "$all_domains" ]; then
-        echo "Error: No domains found. Set either DOMAIN or DOMAINS environment variable"
-        exit 1
-    fi
+	if [ -z "$all_domains" ]; then
+		echo "Error: No domains found. Set either DOMAIN or DOMAINS environment variable"
+		exit 1
+	fi
 
-    echo "Found domains:"
-    echo "$all_domains"
+	echo "Found domains:"
+	echo "$all_domains"
 
-    while IFS= read -r domain; do
-        [[ -n "$domain" ]] || continue
-        process_domain "$domain"
-    done <<<"$all_domains"
+	while IFS= read -r domain; do
+		[[ -n "$domain" ]] || continue
+		process_domain "$domain"
+	done <<<"$all_domains"
 
-    # Generate evidences after all certificates are obtained
-    echo "Generating evidence files for all domains..."
-    generate-evidences.sh
+	# Generate evidences after all certificates are obtained
+	echo "Generating evidence files for all domains..."
+	generate-evidences.sh
 
-    touch /.bootstrapped
+	touch /.bootstrapped
 }
 
 enter_tailscale_network() {
-    VPC_SERVER_URL="https://${VPC_SERVER_APP_ID}-443s.${GATEWAY_SUBDOMAIN}"
-    REGISTER_URI="/api/register?instance_id=${INSTANCE_ID}&node_name=dstack-ingress-vpc"
-    RESPONSE=$(curl -s -H "x-dstack-target-app: ${VPC_SERVER_APP_ID}" -H "Host: vpc-server" \
-        "${VPC_SERVER_URL}${REGISTER_URI}")
-    PRE_AUTH_KEY=$(jq -r .pre_auth_key <<<"$RESPONSE")
-    if [ -z "$PRE_AUTH_KEY" ]; then
-        echo "Error: Failed to obtain pre-auth key from VPC server"
-        exit 1
-    fi
-    echo "Joining Tailscale network..."
-    tailscale up --authkey "${PRE_AUTH_KEY}" --hostname "dstack-ingress-vpc" --accept-routes
+	# Construct registration URL (for initial API call only)
+	REGISTRATION_URL="https://${VPC_SERVER_APP_ID}-443s.${GATEWAY_SUBDOMAIN}"
+	echo "Registration URL: ${REGISTRATION_URL}"
+
+	# Get instance_id from the appropriate socket
+	if [[ -S /var/run/dstack.sock ]]; then
+		INSTANCE_ID=$(curl -s --unix-socket /var/run/dstack.sock http://localhost/Info | jq -r .instance_id)
+	else
+		INSTANCE_ID=$(curl -s --unix-socket /var/run/tappd.sock http://localhost/prpc/Tappd.Info | jq -r .instance_id)
+	fi
+
+	if [ -z "$INSTANCE_ID" ] || [ "$INSTANCE_ID" = "null" ]; then
+		echo "Error: Failed to obtain instance_id from socket"
+		exit 1
+	fi
+
+	echo "Instance ID: ${INSTANCE_ID}"
+
+	REGISTER_URI="/api/register?instance_id=${INSTANCE_ID}&node_name=dstack-ingress-vpc"
+	echo "Registering with VPC server to obtain pre-auth key..."
+	RESPONSE=$(curl -s -k \
+		--cert /etc/ssl/certs/server.crt \
+		--key /etc/ssl/private/server.key \
+		--cacert /etc/ssl/certs/ca.crt \
+		-H "x-dstack-target-app: ${VPC_SERVER_APP_ID}" \
+		-H "Host: vpc-server" \
+		-H "x-dstack-app-id: 6fFF35FbDc2f1c410A9DaD87C8599B8bc2BB0480" \
+		"${REGISTRATION_URL}${REGISTER_URI}")
+
+	PRE_AUTH_KEY=$(jq -r .pre_auth_key <<<"$RESPONSE")
+	VPC_SERVER_URL=$(jq -r .server_url <<<"$RESPONSE")
+
+	if [ -z "$PRE_AUTH_KEY" ]; then
+		echo "Error: Failed to obtain pre-auth key from VPC server"
+		echo "Response: $RESPONSE"
+		exit 1
+	fi
+
+	if [ -z "$VPC_SERVER_URL" ] || [ "$VPC_SERVER_URL" = "null" ]; then
+		echo "Error: Failed to obtain server_url from VPC server"
+		echo "Response: $RESPONSE"
+		exit 1
+	fi
+
+	echo "VPC Server URL (from registration response): ${VPC_SERVER_URL}"
+
+	tailscaled --tun=tailscale1 --state=/var/lib/tailscale/tailscaled.state --socket=/var/run/tailscale/tailscaled.sock &
+	sleep 3
+
+	echo "Joining Tailscale network..."
+
+	tailscale up \
+		--login-server="$VPC_SERVER_URL" \
+		--authkey="$PRE_AUTH_KEY" \
+		--hostname="ingress" \
+		--reset \
+		--accept-dns
+
 }
 
+echo "Getting certificates"
+CERT_URL="http://localhost/GetTlsKey?subject=localhost&usage_server_auth=true&usage_client_auth=true"
+if ! curl -s --unix-socket /var/run/dstack.sock $CERT_URL >/tmp/server_response.json; then
+	echo "Failed to generate certificates - dstack.sock may not be available"
+	# Debug output
+	echo "Debug info - attempting to query dstack.sock directly:"
+	curl -s --unix-socket /var/run/dstack.sock http://localhost/Info
+	echo "Contents of /tmp/server_response.json:"
+	cat /tmp/server_response.json
+	exit 1
+fi
+mkdir -p /etc/ssl/certs /etc/ssl/private
+
+echo "Extracting server key and certificates..."
+jq -r '.key' /tmp/server_response.json >/etc/ssl/private/server.key
+jq -r '.certificate_chain[]' /tmp/server_response.json >/etc/ssl/certs/server.crt
+jq -r '.certificate_chain[-1]' /tmp/server_response.json >/etc/ssl/certs/ca.crt
+
+echo "Setting file permissions..."
+chmod 644 /etc/ssl/private/server.key /etc/ssl/certs/server.crt /etc/ssl/certs/ca.crt
+
+echo "Certificate generation completed!"
+rm -f /tmp/server_response.json
+
+echo "installing tailscale..."
+curl -fsSL https://tailscale.com/install.sh | sh
+
+echo "Entering Tailscale network..."
 enter_tailscale_network
 
 # Credentials are now handled by certman.py setup
+
+echo "Setting up certbot environment"
 
 # Setup certbot environment (venv is already created in Dockerfile)
 setup_certbot_env
 
 # Check if it's the first time the container is started
 if [ ! -f "/.bootstrapped" ]; then
-    bootstrap
+	bootstrap
 else
-    echo "Certificate for $DOMAIN already exists"
-    generate-evidences.sh
+	echo "Certificate for $DOMAIN already exists"
+	generate-evidences.sh
 fi
 
 renewal-daemon.sh &
@@ -261,7 +336,7 @@ renewal-daemon.sh &
 mkdir -p /var/log/nginx
 
 if [ -n "$DOMAIN" ] && [ -n "$TARGET_ENDPOINT" ]; then
-    setup_nginx_conf
+	setup_nginx_conf
 fi
 
 exec "$@"

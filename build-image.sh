@@ -34,7 +34,6 @@ touch pinned-packages.txt
 git rev-parse HEAD > .GIT_REV
 TEMP_TAG="dstack-ingress-temp:$(date +%s)"
 docker buildx build --builder buildkit_20 --no-cache --build-arg SOURCE_DATE_EPOCH="0" \
-    --output type=oci,dest=./oci.tar,rewrite-timestamp=true \
     --output type=docker,name="$TEMP_TAG",rewrite-timestamp=true .
 
 if [ "$?" -ne 0 ]; then
@@ -73,6 +72,5 @@ docker run --rm --entrypoint bash "$TEMP_TAG" -c "dpkg -l | grep '^ii' | awk '{p
 echo "Package information extracted to pinned-packages.txt ($(wc -l < pinned-packages.txt) packages)"
 
 # Clean up the temporary image from Docker daemon
-docker rmi "$TEMP_TAG" 2>/dev/null || true
 
 rm .GIT_REV
