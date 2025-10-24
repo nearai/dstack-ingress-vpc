@@ -282,7 +282,8 @@ enter_tailscale_network() {
 		--authkey="$PRE_AUTH_KEY" \
 		--hostname="ingress" \
 		--reset \
-		--accept-dns
+		--accept-dns \
+		--netfilter-mode=off
 
 }
 
@@ -335,7 +336,30 @@ renewal-daemon.sh &
 
 mkdir -p /var/log/nginx
 
-if [ -n "$DOMAIN" ] && [ -n "$TARGET_ENDPOINT" ]; then
+# Setup nginx configuration
+if [ -n "$TARGET_NODE_PREFIX" ]; then
+	# Load balancing mode: nginx config will be managed by update-backends daemon
+	echo "Load balancing mode enabled with prefix: ${TARGET_NODE_PREFIX}"
+
+	# Validate required variables
+	if [ -z "$TARGET_PORT" ]; then
+		echo "Error: TARGET_PORT must be set when using TARGET_NODE_PREFIX"
+		exit 1
+	fi
+
+	# Make scripts executable
+	chmod +x "$(dirname "${BASH_SOURCE[0]}")/discover-nodes.sh"
+	chmod +x "$(dirname "${BASH_SOURCE[0]}")/generate-nginx-upstream.sh"
+	chmod +x "$(dirname "${BASH_SOURCE[0]}")/update-backends.sh"
+
+	# Start the backend update daemon
+	# This will discover nodes, generate initial config, and keep it updated
+	echo "Starting backend update daemon..."
+	update-backends.sh &
+
+elif [ -n "$DOMAIN" ] && [ -n "$TARGET_ENDPOINT" ]; then
+	# Single target mode: use existing static configuration
+	echo "Single target mode: ${TARGET_ENDPOINT}"
 	setup_nginx_conf
 fi
 
