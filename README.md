@@ -1,302 +1,131 @@
-# Custom Domain Setup for dstack Applications
+# dStack Ingress VPC
 
-This repository provides a solution for setting up custom domains with automatic SSL certificate management for dstack applications using various DNS providers and Let's Encrypt.
-
-## Overview
-
-This project enables you to run dstack applications with your own custom domain, complete with:
-
-- Automatic SSL certificate provisioning and renewal via Let's Encrypt
-- Multi-provider DNS support (Cloudflare, Linode DNS, more to come)
-- Automatic DNS configuration for CNAME, TXT, and CAA records
-- Nginx reverse proxy to route traffic to your application
-- Certificate evidence generation for verification
-- Strong SSL/TLS configuration with modern cipher suites (AES-GCM and ChaCha20-Poly1305)
-
-## How It Works
-
-The dstack-ingress system provides a seamless way to set up custom domains for dstack applications with automatic SSL certificate management. Here's how it works:
-
-1. **Initial Setup**:
-
-   - When first deployed, the container automatically obtains SSL certificates from Let's Encrypt using DNS validation
-   - It configures your DNS provider by creating necessary CNAME, TXT, and optional CAA records
-   - Nginx is configured to use the obtained certificates and proxy requests to your application
-
-2. **DNS Configuration**:
-
-   - A CNAME record is created to point your custom domain to the dstack gateway domain
-   - A TXT record is added with application identification information to help dstack-gateway to route traffic to your application
-   - If enabled, CAA records are set to restrict which Certificate Authorities can issue certificates for your domain
-   - The system automatically detects your DNS provider based on environment variables
-
-3. **Certificate Management**:
-
-   - SSL certificates are automatically obtained during initial setup
-   - A simple background daemon checks for certificate renewal every 12 hours
-   - When certificates are renewed, Nginx is automatically reloaded to use the new certificates
-   - Uses a simple sleep loop instead of cron for reliability and easier debugging in containers
-
-4. **Evidence Generation**:
-   - The system generates evidence files for verification purposes
-   - These include the ACME account information and certificate data
-   - Evidence files are accessible through a dedicated endpoint
+SSL/TLS ingress controller with automatic certificate management and Tailscale VPC integration for load balancing across backend nodes.
 
 ## Features
 
-### Multi-Domain Support (New!)
+- **Automatic SSL/TLS certificates** via Let's Encrypt with DNS-01 challenge
+- **Tailscale VPC integration** for secure private networking
+- **Dynamic load balancing** with health checks across multiple backend nodes
+- **DNS management** with support for Cloudflare and other providers
+- **Certificate auto-renewal** with daemon monitoring
 
-The dstack-ingress now supports multiple domains in a single container:
+## Quick Start
 
-- **Single Domain Mode** (backward compatible): Use `DOMAIN` and `TARGET_ENDPOINT` environment variables
-- **Multi-Domain Mode**: Use `DOMAINS` environment variable with custom nginx configurations in `/etc/nginx/conf.d/`
-- Each domain gets its own SSL certificate
-- Flexible nginx configuration per domain
+### Single Backend Mode
 
-## Usage
-
-### Prerequisites
-
-- Host your domain on one of the supported DNS providers
-- Have appropriate API credentials for your DNS provider (see [DNS Provider Configuration](DNS_PROVIDERS.md) for details)
-
-### Deployment
-
-You can either build the ingress container and push it to docker hub, or use the prebuilt image at `dstacktee/dstack-ingress:20250924`.
-
-#### Option 1: Use the Pre-built Image
-
-The fastest way to get started is to use our pre-built image. Simply use the following docker-compose configuration:
+Route traffic to a single backend service:
 
 ```yaml
 services:
   dstack-ingress:
-    image: dstacktee/dstack-ingress:20250929@sha256:2b47b3e538df0b3e7724255b89369194c8c83a7cfba64d2faf0115ad0a586458
+    image: dstacktee/dstack-ingress:latest
     ports:
       - "443:443"
     environment:
-      # DNS Provider
-      - DNS_PROVIDER=cloudflare
-
-      # Cloudflare example
       - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
-
-      # Common configuration
-      - DOMAIN=${DOMAIN}
-      - GATEWAY_DOMAIN=${GATEWAY_DOMAIN}
-      - CERTBOT_EMAIL=${CERTBOT_EMAIL}
-      - SET_CAA=true
+      - DOMAIN=example.com
+      - GATEWAY_DOMAIN=gateway.example.com
+      - CERTBOT_EMAIL=admin@example.com
       - TARGET_ENDPOINT=http://app:80
     volumes:
       - /var/run/dstack.sock:/var/run/dstack.sock
-      - /var/run/tappd.sock:/var/run/tappd.sock
       - cert-data:/etc/letsencrypt
-    restart: unless-stopped
-  app:
-    image: nginx # Replace with your application image
-    restart: unless-stopped
-volumes:
-  cert-data: # Persistent volume for certificates
 ```
 
-### Multi-Domain Configuration
+### Load Balancing Mode
 
-```yaml
-services:
-  ingress:
-    image: dstacktee/dstack-ingress:20250929@sha256:2b47b3e538df0b3e7724255b89369194c8c83a7cfba64d2faf0115ad0a586458
-    ports:
-      - "443:443"
-    environment:
-      DNS_PROVIDER: cloudflare
-      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
-      CERTBOT_EMAIL: ${CERTBOT_EMAIL}
-      GATEWAY_DOMAIN: _.dstack-prod5.phala.network
-      SET_CAA: true
-      DOMAINS: |
-        ${APP_DOMAIN}
-        ${API_DOMAIN}
-
-    volumes:
-      - /var/run/tappd.sock:/var/run/tappd.sock
-      - letsencrypt:/etc/letsencrypt
-
-    configs:
-      - source: app_conf
-        target: /etc/nginx/conf.d/app.conf
-        mode: 0444
-      - source: api_conf
-        target: /etc/nginx/conf.d/api.conf
-        mode: 0444
-
-    restart: unless-stopped
-
-  app-main:
-    image: nginx
-    restart: unless-stopped
-
-  app-api:
-    image: nginx
-    restart: unless-stopped
-
-volumes:
-  letsencrypt:
-
-configs:
-  app_conf:
-    content: |
-      server {
-          listen 443 ssl;
-          server_name ${APP_DOMAIN};
-          ssl_certificate /etc/letsencrypt/live/${APP_DOMAIN}/fullchain.pem;
-          ssl_certificate_key /etc/letsencrypt/live/${APP_DOMAIN}/privkey.pem;
-          location / {
-              proxy_pass http://app-main:80;
-          }
-      }
-  api_conf:
-    content: |
-      server {
-          listen 443 ssl;
-          server_name ${API_DOMAIN};
-          ssl_certificate /etc/letsencrypt/live/${API_DOMAIN}/fullchain.pem;
-          ssl_certificate_key /etc/letsencrypt/live/${API_DOMAIN}/privkey.pem;
-          location / {
-              proxy_pass http://app-api:80;
-          }
-      }
-```
-
-**Core Environment Variables:**
-
-- `DNS_PROVIDER`: DNS provider to use (cloudflare, linode)
-- `DOMAIN`: Your custom domain (for single domain mode)
-- `DOMAINS`: Multiple domains, one per line (supports environment variable substitution like `${APP_DOMAIN}`)
-- `GATEWAY_DOMAIN`: The dstack gateway domain (e.g. `_.dstack-prod5.phala.network` for Phala Cloud)
-- `CERTBOT_EMAIL`: Your email address used in Let's Encrypt certificate requests
-- `TARGET_ENDPOINT`: The plain HTTP endpoint of your dstack application (for single domain mode)
-- `SET_CAA`: Set to `true` to enable CAA record setup
-- `CLIENT_MAX_BODY_SIZE`: Optional value for nginx `client_max_body_size` (e.g. `50m`) in single-domain mode
-
-**Backward Compatibility:**
-
-- If both `DOMAIN` and `TARGET_ENDPOINT` are set, the system operates in single-domain mode with auto-generated nginx config
-- If `DOMAINS` is set, the system operates in multi-domain mode and expects custom nginx configs in `/etc/nginx/conf.d/`
-- You can use both modes simultaneously
-
-For provider-specific configuration details, see [DNS Provider Configuration](DNS_PROVIDERS.md).
-
-#### Option 2: Build Your Own Image
-
-If you prefer to build the image yourself:
-
-1. Clone this repository
-2. Build the Docker image using the provided build script:
-
-```bash
-./build-image.sh yourusername/dstack-ingress:tag
-```
-
-**Important**: You must use the `build-image.sh` script to build the image. This script ensures reproducible builds with:
-
-- Specific buildkit version (v0.20.2)
-- Deterministic timestamps (`SOURCE_DATE_EPOCH=0`)
-- Package pinning for consistency
-- Git revision tracking
-
-Direct `docker build` commands will not work properly due to the specialized build requirements.
-
-3. Push to your registry (optional):
-
-```bash
-docker push yourusername/dstack-ingress:tag
-```
-
-4. Update the docker-compose.yaml file with your image name and deploy
-
-#### gRPC Support
-
-If your dstack application uses gRPC, you can set `TARGET_ENDPOINT` to `grpc://app:50051`.
-
-example:
+Automatically discover and load balance across multiple backend nodes:
 
 ```yaml
 services:
   dstack-ingress:
-    image: dstacktee/dstack-ingress:20250929@sha256:2b47b3e538df0b3e7724255b89369194c8c83a7cfba64d2faf0115ad0a586458
+    image: dstacktee/dstack-ingress:latest
     ports:
       - "443:443"
     environment:
       - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
-      - DOMAIN=${DOMAIN}
-      - GATEWAY_DOMAIN=${GATEWAY_DOMAIN}
-      - CERTBOT_EMAIL=${CERTBOT_EMAIL}
-      - SET_CAA=true
-      - TARGET_ENDPOINT=grpc://app:50051
+      - DOMAIN=api.example.com
+      - GATEWAY_DOMAIN=gateway.example.com
+      - CERTBOT_EMAIL=admin@example.com
+      - VPC_SERVER_APP_ID=your-vpc-server-id
+      - GATEWAY_SUBDOMAIN=your-gateway-subdomain
+      - TARGET_NODE_PREFIX=api-server
+      - TARGET_PORT=3000
+      - NODE_HEALTH_CHECK=/health
     volumes:
       - /var/run/dstack.sock:/var/run/dstack.sock
-      - /var/run/tappd.sock:/var/run/tappd.sock
       - cert-data:/etc/letsencrypt
-    restart: unless-stopped
-  app:
-    image: your-grpc-app
-    restart: unless-stopped
-volumes:
-  cert-data:
 ```
 
-## Domain Attestation and Verification
+## Environment Variables
 
-The dstack-ingress system provides mechanisms to verify and attest that your custom domain endpoint is secure and properly configured. This comprehensive verification approach ensures the integrity and authenticity of your application.
+### Required (All Modes)
 
-### Evidence Collection
+- `DOMAIN` - Primary domain name for SSL certificate
+- `CLOUDFLARE_API_TOKEN` - Cloudflare API token for DNS management
+- `GATEWAY_DOMAIN` - Gateway domain for DNS alias
+- `CERTBOT_EMAIL` - Email for Let's Encrypt notifications
 
-When certificates are issued or renewed, the system automatically generates a set of cryptographically linked evidence files:
+### Single Backend Mode
 
-1. **Access Evidence Files**:
+- `TARGET_ENDPOINT` - Backend URL (e.g., `http://app:80` or `grpc://service:9090`)
 
-   - Evidence files are accessible at `https://your-domain.com/evidences/`
-   - Key files include `acme-account.json`, `cert.pem`, `sha256sum.txt`, and `quote.json`
+### Load Balancing Mode
 
-2. **Verification Chain**:
+- `VPC_SERVER_APP_ID` - VPC server application ID
+- `GATEWAY_SUBDOMAIN` - Gateway subdomain for VPC registration
+- `TARGET_NODE_PREFIX` - Prefix to filter Tailscale nodes (e.g., `api-server`)
+- `TARGET_PORT` - Backend service port
+- `NODE_HEALTH_CHECK` - Health check endpoint path (optional, e.g., `/health`)
 
-   - `quote.json` contains a TDX quote with the SHA-256 digest of `sha256sum.txt` embedded in the report_data field
-   - `sha256sum.txt` contains cryptographic checksums of both `acme-account.json` and `cert.pem`
-   - When the TDX quote is verified, it cryptographically proves the integrity of the entire evidence chain
+### Optional
 
-3. **Certificate Authentication**:
-   - `acme-account.json` contains the ACME account credentials used to request certificates
-   - When combined with the CAA DNS record, this provides evidence that certificates can only be requested from within this specific TEE application
-   - `cert.pem` is the Let's Encrypt certificate currently serving your custom domain
+- `PORT` - HTTPS port (default: 443)
+- `SET_CAA` - Enable CAA DNS records (default: false)
+- `CLIENT_MAX_BODY_SIZE` - Max request body size (e.g., `100m`)
+- `PROTOCOL` - Set to `grpc` for gRPC backends
+- `DOMAINS` - Multiple domains (newline-separated)
 
-### CAA Record Verification
+## How It Works
 
-If you've enabled CAA records (`SET_CAA=true`), you can verify that only authorized Certificate Authorities can issue certificates for your domain:
+### Single Backend Mode
+1. Obtains SSL certificate via Let's Encrypt DNS-01 challenge
+2. Configures nginx to proxy traffic to the specified backend
+3. Automatically renews certificates before expiration
+
+### Load Balancing Mode
+1. Joins Tailscale VPC network using VPC server registration
+2. Discovers backend nodes matching `TARGET_NODE_PREFIX`
+3. Performs health checks on discovered nodes
+4. Dynamically updates nginx upstream configuration
+5. Monitors node health every 60 seconds and updates backend pool
+
+## DNS Provider Support
+
+See [DNS_PROVIDERS.md](DNS_PROVIDERS.md) for configuration details.
+
+Currently supported:
+- Cloudflare
+- Route53 (AWS)
+- Google Cloud DNS
+- And more...
+
+## Building
 
 ```bash
-dig CAA your-domain.com
+./build-image.sh
 ```
 
-The output will display CAA records that restrict certificate issuance exclusively to Let's Encrypt with your specific account URI, providing an additional layer of security.
+## Health Checks
 
-### TLS Certificate Transparency
+The load balancer performs two layers of health checking:
 
-All Let's Encrypt certificates are logged in public Certificate Transparency (CT) logs, enabling independent verification:
+1. **Active checks** - HTTP/TCP health checks every 60 seconds
+2. **Passive checks** - Nginx `max_fails=2` and `fail_timeout=30s`
 
-**CT Log Verification**:
+Only healthy nodes are included in the backend pool.
 
-- Visit [crt.sh](https://crt.sh/) and search for your domain
-- Confirm that the certificates match those issued by the dstack-ingress system
-- This public logging ensures that all certificates are visible and can be monitored for unauthorized issuance
+## Evidence Files
 
-## License
-
-MIT License
-
-Copyright (c) 2025
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+Access certificate transparency evidence at: `https://your-domain/evidences/`
