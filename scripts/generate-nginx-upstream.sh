@@ -6,57 +6,57 @@ set -e
 # Reads nodes from stdin (one hostname per line)
 
 if [ -z "$DOMAIN" ]; then
-    echo "Error: DOMAIN not set" >&2
-    exit 1
+	echo "Error: DOMAIN not set" >&2
+	exit 1
 fi
 
 if [ -z "$PORT" ]; then
-    echo "Error: PORT not set" >&2
-    exit 1
+	echo "Error: PORT not set" >&2
+	exit 1
 fi
 
 if [ -z "$TARGET_PORT" ]; then
-    echo "Error: TARGET_PORT not set" >&2
-    exit 1
+	echo "Error: TARGET_PORT not set" >&2
+	exit 1
 fi
 
 # Determine proxy command (proxy or grpc)
 PROXY_CMD="proxy"
 if [[ "${TARGET_ENDPOINT}" == grpc://* ]] || [[ "${PROTOCOL}" == "grpc" ]]; then
-    PROXY_CMD="grpc"
+	PROXY_CMD="grpc"
 fi
 
 # Read nodes from stdin into an array
 mapfile -t NODES
 
 if [ ${#NODES[@]} -eq 0 ]; then
-    echo "Error: No backend nodes provided" >&2
-    exit 1
+	echo "Error: No backend nodes provided" >&2
+	exit 1
 fi
 
 # Generate upstream block
 UPSTREAM_SERVERS=""
 for node in "${NODES[@]}"; do
-    # Remove any whitespace
-    node=$(echo "$node" | xargs)
-    if [ -n "$node" ]; then
-        # Add server with passive health check parameters (backup layer)
-        # Note: Only healthy nodes are included (pre-filtered by active checks)
-        # max_fails=2: mark server as unavailable after 2 failed requests
-        # fail_timeout=30s: time to consider server unavailable before retry
-        UPSTREAM_SERVERS="${UPSTREAM_SERVERS}    server ${node}:${TARGET_PORT} max_fails=2 fail_timeout=30s;\n"
-    fi
+	# Remove any whitespace
+	node=$(echo "$node" | xargs)
+	if [ -n "$node" ]; then
+		# Add server with passive health check parameters (backup layer)
+		# Note: Only healthy nodes are included (pre-filtered by active checks)
+		# max_fails=2: mark server as unavailable after 2 failed requests
+		# fail_timeout=30s: time to consider server unavailable before retry
+		UPSTREAM_SERVERS="${UPSTREAM_SERVERS}    server ${node}:${TARGET_PORT} max_fails=2 fail_timeout=30s;\n"
+	fi
 done
 
 if [ -z "$UPSTREAM_SERVERS" ]; then
-    echo "Error: No valid backend nodes" >&2
-    exit 1
+	echo "Error: No valid backend nodes" >&2
+	exit 1
 fi
 
 # Prepare client_max_body_size configuration
 CLIENT_MAX_BODY_SIZE_CONF=""
 if [ -n "$CLIENT_MAX_BODY_SIZE" ]; then
-    CLIENT_MAX_BODY_SIZE_CONF="    client_max_body_size ${CLIENT_MAX_BODY_SIZE};"
+	CLIENT_MAX_BODY_SIZE_CONF="    client_max_body_size ${CLIENT_MAX_BODY_SIZE};"
 fi
 
 # Generate the full nginx configuration
@@ -127,7 +127,7 @@ ${CLIENT_MAX_BODY_SIZE_CONF}
         # Socket.IO optimized timeouts
         ${PROXY_CMD}_read_timeout 3600;    # 1 hour
         ${PROXY_CMD}_send_timeout 3600;    # 1 hour
-        ${PROXY_CMD}_connect_timeout 60;   # 1 minute
+        ${PROXY_CMD}_connect_timeout 600;  # 20 minute
     }
 
     # Regular HTTP requests
