@@ -26,6 +26,19 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
+
+require_command() {
+    local cmd="$1"
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        echo "Error: required command '$cmd' not found in PATH" >&2
+        exit 1
+    fi
+}
+
+for required in docker skopeo jq git; do
+    require_command "$required"
+done
+
 # Check if buildkit_20 already exists before creating it
 if ! docker buildx inspect buildkit_20 &>/dev/null; then
     docker buildx create --use --driver-opt image=moby/buildkit:v0.20.2 --name buildkit_20
@@ -34,6 +47,7 @@ touch pinned-packages.txt
 git rev-parse HEAD > .GIT_REV
 TEMP_TAG="dstack-ingress-temp:$(date +%s)"
 docker buildx build --builder buildkit_20 --no-cache --build-arg SOURCE_DATE_EPOCH="0" \
+    --output type=oci,dest=./oci.tar,rewrite-timestamp=true \
     --output type=docker,name="$TEMP_TAG",rewrite-timestamp=true .
 
 if [ "$?" -ne 0 ]; then
@@ -60,8 +74,6 @@ else
     echo ""
     echo " skopeo copy --insecure-policy oci-archive:./oci.tar docker://<repo>[:<tag>]"
     echo ""
-    echo " Pushing image to dstacktee org:"
-    echo " skopeo copy --insecure-policy oci-archive:./oci.tar docker://dstacktee/dstack-ingress:$(date +%Y%m%d) --authfile ~/.docker/config.json"
 fi
 echo ""
 
@@ -72,5 +84,6 @@ docker run --rm --entrypoint bash "$TEMP_TAG" -c "dpkg -l | grep '^ii' | awk '{p
 echo "Package information extracted to pinned-packages.txt ($(wc -l < pinned-packages.txt) packages)"
 
 # Clean up the temporary image from Docker daemon
+docker rmi "$TEMP_TAG" 2>/dev/null || true
 
 rm .GIT_REV
