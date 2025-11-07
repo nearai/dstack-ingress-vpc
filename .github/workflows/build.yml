@@ -19,7 +19,7 @@ jobs:
       packages: write
       attestations: write
       id-token: write
-    runs-on: [self-hosted, infra]
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
