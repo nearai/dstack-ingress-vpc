@@ -141,13 +141,16 @@ update_backends() {
         # Save VPC_SERVER_APP_ID and healthy node hostnames into /evidences/vpc.json
         if [ -n "$VPC_SERVER_APP_ID" ]; then
             if [ -n "$DISCOVERED_NODES" ]; then
-                HOSTNAMES_JSON=$(printf '%s\n' "$DISCOVERED_NODES" | grep -v '^$' | jq -R . | jq -s .)
+                HOSTNAMES_JSON=$(printf '%s\n' "$DISCOVERED_NODES" | jq -R . | jq -s .)
             else
                 HOSTNAMES_JSON="[]"
             fi
             mkdir -p /evidences
-            jq -n --arg vpc_server_app_id "$VPC_SERVER_APP_ID" --argjson nodes "$HOSTNAMES_JSON" \
-                '{vpc_server_app_id: $vpc_server_app_id, nodes: $nodes}' > /evidences/vpc.json
+            if ! jq -n --arg vpc_server_app_id "$VPC_SERVER_APP_ID" --argjson nodes "$HOSTNAMES_JSON" \
+                '{vpc_server_app_id: $vpc_server_app_id, nodes: $nodes}' > /evidences/vpc.json; then
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] Error: Failed to write /evidences/vpc.json"
+                return 1
+            fi
         fi
 
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] Backend update completed successfully"
