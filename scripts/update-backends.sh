@@ -140,23 +140,14 @@ update_backends() {
 
         # Save VPC_SERVER_APP_ID and healthy node hostnames into /evidences/vpc.json
         if [ -n "$VPC_SERVER_APP_ID" ]; then
-            HOSTNAMES_ARRAY=""
             if [ -n "$DISCOVERED_NODES" ]; then
-                while IFS= read -r hostname; do
-                    if [ -z "$hostname" ]; then
-                        continue
-                    fi
-                    if [ -z "$HOSTNAMES_ARRAY" ]; then
-                        HOSTNAMES_ARRAY="\"$hostname\""
-                    else
-                        HOSTNAMES_ARRAY="$HOSTNAMES_ARRAY, \"$hostname\""
-                    fi
-                done <<< "$DISCOVERED_NODES"
+                HOSTNAMES_JSON=$(printf '%s\n' "$DISCOVERED_NODES" | grep -v '^$' | jq -R . | jq -s .)
+            else
+                HOSTNAMES_JSON="[]"
             fi
-
-            printf '{"vpc_server_app_id": "%s", "nodes": [%s]}\n' \
-                "$VPC_SERVER_APP_ID" \
-                "$HOSTNAMES_ARRAY" > /evidences/vpc.json
+            mkdir -p /evidences
+            jq -n --arg vpc_server_app_id "$VPC_SERVER_APP_ID" --argjson nodes "$HOSTNAMES_JSON" \
+                '{vpc_server_app_id: $vpc_server_app_id, nodes: $nodes}' > /evidences/vpc.json
         fi
 
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] Backend update completed successfully"
