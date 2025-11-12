@@ -9,15 +9,114 @@ set -e
 DEFAULT_MAX_PARALLEL=10
 DEFAULT_CONNECT_TIMEOUT=5
 DEFAULT_TOTAL_TIMEOUT=10
+DEFAULT_DEAD_ENDPOINT_CACHE_DURATION=3600 # 1 hour in seconds
 
 # Configuration from environment
 MAX_PARALLEL_HEALTH_CHECKS=${MAX_PARALLEL_HEALTH_CHECKS:-$DEFAULT_MAX_PARALLEL}
 HEALTH_CHECK_CONNECT_TIMEOUT=${HEALTH_CHECK_CONNECT_TIMEOUT:-$DEFAULT_CONNECT_TIMEOUT}
 HEALTH_CHECK_TIMEOUT=${HEALTH_CHECK_TIMEOUT:-$DEFAULT_TOTAL_TIMEOUT}
+DEAD_ENDPOINT_CACHE_DURATION=${DEAD_ENDPOINT_CACHE_DURATION:-$DEFAULT_DEAD_ENDPOINT_CACHE_DURATION}
+
+# Dead endpoint cache file
+DEAD_ENDPOINT_CACHE_FILE="/tmp/dead_endpoints.cache"
 
 # Logging function
 log_health() {
 	echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >&2
+}
+
+# Dead endpoint cache functions
+is_endpoint_cached_as_dead() {
+	local endpoint="$1"
+	local cache_key="${endpoint}:${TARGET_PORT:-80}"
+
+	if [ ! -f "$DEAD_ENDPOINT_CACHE_FILE" ]; then
+		return 1
+	fi
+
+	local current_time
+	current_time=$(date +%s)
+
+	# Check if endpoint is in cache and not expired
+	while IFS= read -r line; do
+		if [ -n "$line" ]; then
+			local cached_endpoint=$(echo "$line" | cut -d':' -f1-2)
+			local cached_time=$(echo "$line" | cut -d':' -f3)
+
+			if [ "$cached_endpoint" = "$cache_key" ]; then
+				local age=$((current_time - cached_time))
+				if [ "$age" -lt "$DEAD_ENDPOINT_CACHE_DURATION" ]; then
+					return 0 # Endpoint is cached as dead and not expired
+				else
+					# Remove expired entry
+					sed -i.bak "/^${cache_key}:/d" "$DEAD_ENDPOINT_CACHE_FILE" 2>/dev/null || true
+					return 1
+				fi
+			fi
+		fi
+	done <"$DEAD_ENDPOINT_CACHE_FILE"
+
+	return 1
+}
+
+cache_endpoint_as_dead() {
+	local endpoint="$1"
+	local cache_key="${endpoint}:${TARGET_PORT:-80}"
+	local current_time
+	current_time=$(date +%s)
+
+	# Create cache file if it doesn't exist
+	touch "$DEAD_ENDPOINT_CACHE_FILE"
+
+	# Remove any existing entry for this endpoint
+	sed -i.bak "/^${cache_key}:/d" "$DEAD_ENDPOINT_CACHE_FILE" 2>/dev/null || true
+
+	# Add new entry
+	echo "${cache_key}:${current_time}" >>"$DEAD_ENDPOINT_CACHE_FILE"
+
+	log_health "  - $endpoint [CACHED AS DEAD for ${DEAD_ENDPOINT_CACHE_DURATION}s]"
+}
+
+remove_dead_endpoint_cache() {
+	local endpoint="$1"
+	local cache_key="${endpoint}:${TARGET_PORT:-80}"
+
+	if [ -f "$DEAD_ENDPOINT_CACHE_FILE" ]; then
+		sed -i.bak "/^${cache_key}:/d" "$DEAD_ENDPOINT_CACHE_FILE" 2>/dev/null || true
+		log_health "  - $endpoint [REMOVED FROM DEAD CACHE]"
+	fi
+}
+
+cleanup_expired_cache_entries() {
+	if [ ! -f "$DEAD_ENDPOINT_CACHE_FILE" ]; then
+		return 0
+	fi
+
+	local current_time
+	current_time=$(date +%s)
+	local temp_file="${DEAD_ENDPOINT_CACHE_FILE}.tmp"
+
+	# Filter out expired entries
+	while IFS= read -r line; do
+		if [ -n "$line" ]; then
+			local cached_time=$(echo "$line" | cut -d':' -f3)
+			local age=$((current_time - cached_time))
+
+			if [ "$age" -lt "$DEAD_ENDPOINT_CACHE_DURATION" ]; then
+				echo "$line" >>"$temp_file"
+			fi
+		fi
+	done <"$DEAD_ENDPOINT_CACHE_FILE"
+
+	# Replace cache file with filtered results
+	if [ -f "$temp_file" ]; then
+		mv "$temp_file" "$DEAD_ENDPOINT_CACHE_FILE"
+	else
+		>"$DEAD_ENDPOINT_CACHE_FILE"
+	fi
+
+	# Cleanup backup files
+	rm -f "${DEAD_ENDPOINT_CACHE_FILE}.bak" 2>/dev/null || true
 }
 
 # Check single node health via HTTP
@@ -25,12 +124,24 @@ check_node_health_http() {
 	local node="$1"
 	local port="$2"
 	local health_path="$3"
+
+	# Check if endpoint is cached as dead
+	if is_endpoint_cached_as_dead "$node"; then
+		log_health "  - $node [CACHED AS DEAD - skipping check]"
+		echo "UNHEALTHY:$node"
+		return 1
+	fi
+
 	local health_url="http://${node}:${port}${health_path}"
 
 	if curl -sf --connect-timeout "$HEALTH_CHECK_CONNECT_TIMEOUT" --max-time "$HEALTH_CHECK_TIMEOUT" "$health_url" >/dev/null 2>&1; then
+		# Endpoint is healthy, remove from dead cache if present
+		remove_dead_endpoint_cache "$node"
 		echo "HEALTHY:$node"
 		return 0
 	else
+		# Endpoint is unhealthy, cache as dead
+		cache_endpoint_as_dead "$node"
 		echo "UNHEALTHY:$node"
 		return 1
 	fi
@@ -41,10 +152,21 @@ check_node_health_tcp() {
 	local node="$1"
 	local port="$2"
 
+	# Check if endpoint is cached as dead
+	if is_endpoint_cached_as_dead "$node"; then
+		log_health "  - $node [CACHED AS DEAD - skipping check]"
+		echo "UNHEALTHY:$node"
+		return 1
+	fi
+
 	if timeout "$HEALTH_CHECK_CONNECT_TIMEOUT" bash -c "cat < /dev/null > /dev/tcp/${node}/${port}" 2>/dev/null; then
+		# Endpoint is healthy, remove from dead cache if present
+		remove_dead_endpoint_cache "$node"
 		echo "HEALTHY:$node"
 		return 0
 	else
+		# Endpoint is unhealthy, cache as dead
+		cache_endpoint_as_dead "$node"
 		echo "UNHEALTHY:$node"
 		return 1
 	fi
@@ -102,8 +224,8 @@ check_nodes_parallel() {
 	fi
 
 	# Export variables and functions for subshell
-	export HEALTH_CHECK_CONNECT_TIMEOUT HEALTH_CHECK_TIMEOUT
-	export -f "$health_check_function" log_health
+	export HEALTH_CHECK_CONNECT_TIMEOUT HEALTH_CHECK_TIMEOUT DEAD_ENDPOINT_CACHE_FILE DEAD_ENDPOINT_CACHE_DURATION TARGET_PORT
+	export -f "$health_check_function" log_health is_endpoint_cached_as_dead cache_endpoint_as_dead remove_dead_endpoint_cache
 
 	# Execute health checks in parallel
 	local results
@@ -210,6 +332,9 @@ check_nodes() {
 	local health_path="$3"
 	local use_tcp="${4:-false}"
 
+	# Cleanup expired cache entries first
+	cleanup_expired_cache_entries
+
 	# Try parallel first, fallback to sequential if it fails
 	if ! check_nodes_parallel "$nodes" "$port" "$health_path" "$use_tcp"; then
 		log_health "Parallel health check failed, trying sequential mode"
@@ -223,6 +348,7 @@ show_config() {
 	echo "  MAX_PARALLEL_HEALTH_CHECKS: $MAX_PARALLEL_HEALTH_CHECKS"
 	echo "  HEALTH_CHECK_CONNECT_TIMEOUT: ${HEALTH_CHECK_CONNECT_TIMEOUT}s"
 	echo "  HEALTH_CHECK_TIMEOUT: ${HEALTH_CHECK_TIMEOUT}s"
+	echo "  DEAD_ENDPOINT_CACHE_DURATION: ${DEAD_ENDPOINT_CACHE_DURATION}s"
 	echo ""
 	echo "Usage: $0 [command] [options]"
 	echo ""
@@ -235,6 +361,7 @@ show_config() {
 	echo "  MAX_PARALLEL_HEALTH_CHECKS    Maximum parallel checks (default: 10)"
 	echo "  HEALTH_CHECK_CONNECT_TIMEOUT  Connect timeout in seconds (default: 5)"
 	echo "  HEALTH_CHECK_TIMEOUT          Total timeout in seconds (default: 10)"
+	echo "  DEAD_ENDPOINT_CACHE_DURATION  Dead endpoint cache duration in seconds (default: 3600)"
 }
 
 # Command line interface
