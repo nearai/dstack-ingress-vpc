@@ -40,6 +40,7 @@ echo "Debug: Looking for nodes with prefix: $TARGET_NODE_PREFIX" >&2
         .Peer // {} |
         to_entries[] |
         select(.value.HostName | startswith($prefix)) |
+        select(.value.Online == true) |
         .value.DNSName // .value.HostName
     ' | sed 's/\.$//' # Remove trailing dot from DNS names
 
@@ -47,6 +48,7 @@ echo "Debug: Looking for nodes with prefix: $TARGET_NODE_PREFIX" >&2
     echo "$TAILSCALE_STATUS" | jq -r --arg prefix "$TARGET_NODE_PREFIX" '
         .Self // {} |
         select(.HostName | startswith($prefix)) |
+        select(.Online == true) |
         .DNSName // .HostName
     ' | sed 's/\.$//'
 } | grep -v '^$' # Filter out empty lines
