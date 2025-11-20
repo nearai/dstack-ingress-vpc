@@ -91,12 +91,15 @@ update_backends() {
     # Loop through nodes and start background checks
     while read -r node; do
         if [ -n "$node" ]; then
-            check_node_health "$node" "${TMP_RESULTS_DIR}/nodes" &
+            check_node_health "$node" "${TMP_RESULTS_DIR}/node-$node" &
         fi
     done <<< "$DISCOVERED_NODES"
     
     # Wait for all background jobs to finish
     wait
+
+    # Aggregate healthy nodes
+    cat "${TMP_RESULTS_DIR}"/node-* > "${TMP_RESULTS_DIR}/nodes" 2>/dev/null || true
 
     # Collect healthy nodes
     if [ -f "${TMP_RESULTS_DIR}/nodes" ]; then
