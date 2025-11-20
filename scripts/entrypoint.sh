@@ -244,6 +244,18 @@ enter_tailscale_network() {
 
 	echo "Instance ID: ${INSTANCE_ID}"
 
+	# Get app_id
+	if [[ -S /var/run/dstack.sock ]]; then
+		APP_ID=$(curl -s --unix-socket /var/run/dstack.sock http://localhost/Info | jq -r .app_id)
+	else
+		APP_ID=$(curl -s --unix-socket /var/run/tappd.sock http://localhost/prpc/Tappd.Info | jq -r .app_id)
+	fi
+
+	if [ -z "$APP_ID" ] || [ "$APP_ID" = "null" ]; then
+		echo "Error: Failed to obtain app_id from socket"
+		exit 1
+	fi
+
 	REGISTER_URI="/api/register?instance_id=${INSTANCE_ID}&node_name=dstack-ingress-vpc"
 	echo "Registering with VPC server to obtain pre-auth key..."
 	RESPONSE=$(curl -s -k \
@@ -252,7 +264,7 @@ enter_tailscale_network() {
 		--cacert /etc/ssl/certs/ca.crt \
 		-H "x-dstack-target-app: ${VPC_SERVER_APP_ID}" \
 		-H "Host: vpc-server" \
-		-H "x-dstack-app-id: 6fFF35FbDc2f1c410A9DaD87C8599B8bc2BB0480" \
+		-H "x-dstack-app-id: ${APP_ID}" \
 		"${REGISTRATION_URL}${REGISTER_URI}")
 
 	PRE_AUTH_KEY=$(jq -r .pre_auth_key <<<"$RESPONSE")
