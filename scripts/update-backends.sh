@@ -29,13 +29,13 @@ fi
 update_backends() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Discovering backend nodes..."
 
-    # Discover nodes matching the prefix (capture both stdout and stderr for debugging)
-    DISCOVERY_OUTPUT=$("${SCRIPT_DIR}/discover-nodes.sh" 2>&1)
+    # Discover nodes matching the prefix
+    # Stderr passes through to system logs
+    DISCOVERY_OUTPUT=$("${SCRIPT_DIR}/discover-nodes.sh")
     DISCOVERY_EXIT=$?
 
     if [ $DISCOVERY_EXIT -ne 0 ]; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Warning: Failed to discover nodes:"
-        echo "$DISCOVERY_OUTPUT" | sed 's/^/    /'
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Warning: Failed to discover nodes (check logs for details)"
         return 1
     fi
 
@@ -55,11 +55,16 @@ update_backends() {
 
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Found ${NODE_COUNT} node(s), checking health..."
 
-    # Health check each node and filter to only healthy ones
-    HEALTHY_NODES=""
-    while read -r node; do
+    # Health check each node in parallel and filter to only healthy ones
+    TMP_RESULTS_DIR=$(mktemp -d)
+    trap 'rm -rf "$TMP_RESULTS_DIR"' RETURN
+
+    check_node_health() {
+        local node=$1
+        local output_file=$2
+        
         if [ -z "$node" ]; then
-            continue
+            return
         fi
 
         # Perform health check
@@ -68,7 +73,7 @@ update_backends() {
             HEALTH_URL="http://${node}:${TARGET_PORT}${NODE_HEALTH_CHECK}"
             if curl -sf --connect-timeout 5 --max-time 10 "$HEALTH_URL" >/dev/null 2>&1; then
                 echo "  - $node [HEALTHY]"
-                HEALTHY_NODES="${HEALTHY_NODES}${node}"$'\n'
+                echo "$node" >> "$output_file"
             else
                 echo "  - $node [UNHEALTHY] - removing from pool"
             fi
@@ -76,15 +81,32 @@ update_backends() {
             # TCP port check only
             if timeout 5 bash -c "cat < /dev/null > /dev/tcp/${node}/${TARGET_PORT}" 2>/dev/null; then
                 echo "  - $node [HEALTHY]"
-                HEALTHY_NODES="${HEALTHY_NODES}${node}"$'\n'
+                echo "$node" >> "$output_file"
             else
                 echo "  - $node [UNHEALTHY] - removing from pool"
             fi
         fi
-    done <<< "$DISCOVERED_NODES"
+    }
 
-    # Remove trailing newline
-    HEALTHY_NODES=$(echo "$HEALTHY_NODES" | sed '/^$/d')
+    # Loop through nodes and start background checks
+    while read -r node; do
+        if [ -n "$node" ]; then
+            check_node_health "$node" "${TMP_RESULTS_DIR}/node-$node" &
+        fi
+    done <<< "$DISCOVERED_NODES"
+    
+    # Wait for all background jobs to finish
+    wait
+
+    # Aggregate healthy nodes
+    cat "${TMP_RESULTS_DIR}"/node-* > "${TMP_RESULTS_DIR}/nodes" 2>/dev/null || true
+
+    # Collect healthy nodes
+    if [ -f "${TMP_RESULTS_DIR}/nodes" ]; then
+        HEALTHY_NODES=$(cat "${TMP_RESULTS_DIR}/nodes")
+    else
+        HEALTHY_NODES=""
+    fi
 
     # Count healthy nodes
     if [ -z "$HEALTHY_NODES" ]; then
