@@ -121,6 +121,11 @@ ${client_max_body_size_conf}
         ${PROXY_CMD}_set_header X-Real-IP \$remote_addr;
         ${PROXY_CMD}_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         ${PROXY_CMD}_set_header X-Forwarded-Proto \$scheme;
+
+        # Timeout configuration for long-running requests
+        ${PROXY_CMD}_read_timeout 600;     # 10 minutes
+        ${PROXY_CMD}_send_timeout 600;     # 10 minutes
+        ${PROXY_CMD}_connect_timeout 10;   # 10 seconds
     }
 
     location /evidences/ {
