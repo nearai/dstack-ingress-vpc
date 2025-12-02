@@ -128,6 +128,10 @@ ${CLIENT_MAX_BODY_SIZE_CONF}
         ${PROXY_CMD}_read_timeout 3600;    # 1 hour
         ${PROXY_CMD}_send_timeout 3600;    # 1 hour
         ${PROXY_CMD}_connect_timeout 600;  # 20 minute
+
+        # Retry on another backend if this one fails (connection errors only for WebSocket)
+        ${PROXY_CMD}_next_upstream error timeout invalid_header;
+        ${PROXY_CMD}_next_upstream_tries 2;
     }
 
     # Regular HTTP requests
@@ -142,6 +146,11 @@ ${CLIENT_MAX_BODY_SIZE_CONF}
         ${PROXY_CMD}_read_timeout 600;     # 10 minutes
         ${PROXY_CMD}_send_timeout 600;     # 10 minutes
         ${PROXY_CMD}_connect_timeout 10;   # 10 seconds
+
+        # Retry on another backend for connection errors and 5XX responses
+        ${PROXY_CMD}_next_upstream error timeout invalid_header http_500 http_502 http_503 http_504;
+        ${PROXY_CMD}_next_upstream_tries 2;
+        ${PROXY_CMD}_next_upstream_timeout 30s;
     }
 
     location /evidences/ {

@@ -126,6 +126,16 @@ The load balancer performs two layers of health checking:
 
 Only healthy nodes are included in the backend pool.
 
+## Automatic Retry on Failure
+
+In load balancing mode, if a backend returns a 5XX error or fails to connect, nginx will automatically retry the request on another backend:
+
+- **Retry triggers**: Connection errors, timeouts, invalid headers, HTTP 500/502/503/504
+- **Max retries**: 2 attempts total (original + 1 retry)
+- **Retry timeout**: 30 seconds max for retry attempts
+
+This ensures high availability when individual backends experience transient failures.
+
 ## Evidence Files
 
 Access certificate transparency evidence at: `https://your-domain/evidences/`
