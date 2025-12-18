@@ -74,7 +74,7 @@ RATE_LIMIT_LOCATION_CONF=""
 RATE_LIMIT_PATH_BLOCKS=""
 RATE_LIMIT_ZONE_CONF=""
 
-if [ "$RATE_LIMIT_ENABLED" = "true" ]; then
+if [ "${RATE_LIMIT_ENABLED,,}" = "true" ]; then
 	# Rate limiting zone (must be in http context, which conf.d files are included in)
 	RATE_LIMIT_ZONE_CONF="# Rate limiting zone - IP-based rate limiting
 limit_req_zone \$binary_remote_addr zone=ip_limit:10m rate=${RATE_LIMIT_RATE};

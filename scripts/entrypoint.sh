@@ -68,7 +68,7 @@ setup_nginx_conf() {
 	local rate_limit_zone_conf=""
 
 	# Setup rate limiting zone if rate limiting is enabled
-	if [ "$rate_limit_enabled" = "true" ]; then
+	if [ "${rate_limit_enabled,,}" = "true" ]; then
 		# Rate limiting zone (must be in http context, which conf.d files are included in)
 		rate_limit_zone_conf="# Rate limiting zone - IP-based rate limiting
     limit_req_zone \$binary_remote_addr zone=ip_limit:10m rate=${rate_limit_rate};
