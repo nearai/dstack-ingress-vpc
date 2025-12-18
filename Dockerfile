@@ -34,7 +34,9 @@ RUN mkdir -p \
     /var/www/certbot \
     /usr/share/nginx/html \
     /etc/nginx/conf.d \
-    /var/log/nginx
+    /var/log/nginx && \
+    ln -sf /dev/stdout /var/log/nginx/access.log && \
+    ln -sf /dev/stderr /var/log/nginx/error.log
 
 # Install scripts with deterministic permissions via bind mount
 RUN --mount=type=bind,source=scripts,target=/tmp/scripts,ro \
