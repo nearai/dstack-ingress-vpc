@@ -52,7 +52,61 @@ setup_nginx_conf() {
 		client_max_body_size_conf="    client_max_body_size ${CLIENT_MAX_BODY_SIZE};"
 	fi
 
+	# Rate limiting configuration
+	# RATE_LIMIT_BURST: burst size (default: 20)
+	# RATE_LIMIT_ENABLED: enable/disable rate limiting (default: true)
+	# RATE_LIMIT_PATHS: comma-separated paths to rate limit
+	#   If set, rate limiting is applied only to these paths. If not set and RATE_LIMIT_ENABLED=true,
+	#   rate limiting is applied to all requests (location /)
+	local rate_limit_enabled="${RATE_LIMIT_ENABLED:-true}"
+	local rate_limit_burst="${RATE_LIMIT_BURST:-20}"
+	local rate_limit_rate="${RATE_LIMIT_RATE:-10r/s}"
+	local rate_limit_paths="${RATE_LIMIT_PATHS:-}"
+	local rate_limit_location_conf=""
+	local rate_limit_path_blocks=""
+	local rate_limit_zone_conf=""
+
+	# Setup rate limiting zone if rate limiting is enabled
+	if [ "$rate_limit_enabled" = "true" ]; then
+		# Rate limiting zone (must be in http context, which conf.d files are included in)
+		rate_limit_zone_conf="# Rate limiting zone - IP-based rate limiting
+    limit_req_zone \$binary_remote_addr zone=ip_limit:10m rate=${rate_limit_rate};
+"
+	fi
+
+		# If RATE_LIMIT_PATHS is set, create specific location blocks for those paths
+		if [ -n "$rate_limit_paths" ]; then
+			# Split comma-separated paths and create location blocks
+			IFS=',' read -ra PATHS <<< "$rate_limit_paths"
+			for path in "${PATHS[@]}"; do
+				# Trim whitespace
+				path=$(echo "$path" | xargs)
+				if [ -n "$path" ]; then
+					rate_limit_path_blocks="${rate_limit_path_blocks}
+    # Rate-limited path: ${path}
+    location ${path} {
+        limit_req zone=ip_limit burst=${rate_limit_burst} nodelay;
+        ${PROXY_CMD}_pass ${TARGET_ENDPOINT};
+        ${PROXY_CMD}_set_header Host \$host;
+        ${PROXY_CMD}_set_header X-Real-IP \$remote_addr;
+        ${PROXY_CMD}_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        ${PROXY_CMD}_set_header X-Forwarded-Proto \$scheme;
+
+        # Timeout configuration
+        ${PROXY_CMD}_read_timeout 600;
+        ${PROXY_CMD}_send_timeout 600;
+        ${PROXY_CMD}_connect_timeout 10;
+    }"
+				fi
+			done
+		else
+			# Apply rate limiting to general location / if no specific paths are set
+			rate_limit_location_conf="        limit_req zone=ip_limit burst=${rate_limit_burst} nodelay;"
+		fi
+	fi
+
 	cat <<EOF >/etc/nginx/conf.d/default.conf
+${rate_limit_zone_conf}
 server {
     listen ${PORT} ssl;
     http2 on;
@@ -113,9 +167,10 @@ ${client_max_body_size_conf}
         ${PROXY_CMD}_send_timeout 3600;    # 1 hour
         ${PROXY_CMD}_connect_timeout 60;   # 1 minute
     }
-
+${rate_limit_path_blocks}
     # Regular HTTP requests
     location / {
+${rate_limit_location_conf}
         ${PROXY_CMD}_pass ${TARGET_ENDPOINT};
         ${PROXY_CMD}_set_header Host \$host;
         ${PROXY_CMD}_set_header X-Real-IP \$remote_addr;
