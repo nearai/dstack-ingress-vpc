@@ -60,12 +60,13 @@ if [ -n "$CLIENT_MAX_BODY_SIZE" ]; then
 fi
 
 # Rate limiting configuration
+# RATE_LIMIT_ENABLED: enable/disable rate limiting (default: false)
+# RATE_LIMIT_RATE: requests per second (default: 10r/s)
 # RATE_LIMIT_BURST: burst size (default: 20)
-# RATE_LIMIT_ENABLED: enable/disable rate limiting (default: true)
 # RATE_LIMIT_PATHS: comma-separated paths to rate limit
 #   If set, rate limiting is applied only to these paths. If not set and RATE_LIMIT_ENABLED=true,
 #   rate limiting is applied to all requests (location /)
-RATE_LIMIT_ENABLED="${RATE_LIMIT_ENABLED:-true}"
+RATE_LIMIT_ENABLED="${RATE_LIMIT_ENABLED:-false}"
 RATE_LIMIT_BURST="${RATE_LIMIT_BURST:-20}"
 RATE_LIMIT_RATE="${RATE_LIMIT_RATE:-10r/s}"
 RATE_LIMIT_PATHS="${RATE_LIMIT_PATHS:-}"

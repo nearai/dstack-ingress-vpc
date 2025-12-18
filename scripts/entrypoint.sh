@@ -53,12 +53,13 @@ setup_nginx_conf() {
 	fi
 
 	# Rate limiting configuration
+	# RATE_LIMIT_ENABLED: enable/disable rate limiting (default: false)
+	# RATE_LIMIT_RATE: requests per second (default: 10r/s)
 	# RATE_LIMIT_BURST: burst size (default: 20)
-	# RATE_LIMIT_ENABLED: enable/disable rate limiting (default: true)
 	# RATE_LIMIT_PATHS: comma-separated paths to rate limit
 	#   If set, rate limiting is applied only to these paths. If not set and RATE_LIMIT_ENABLED=true,
 	#   rate limiting is applied to all requests (location /)
-	local rate_limit_enabled="${RATE_LIMIT_ENABLED:-true}"
+	local rate_limit_enabled="${RATE_LIMIT_ENABLED:-false}"
 	local rate_limit_burst="${RATE_LIMIT_BURST:-20}"
 	local rate_limit_rate="${RATE_LIMIT_RATE:-10r/s}"
 	local rate_limit_paths="${RATE_LIMIT_PATHS:-}"
