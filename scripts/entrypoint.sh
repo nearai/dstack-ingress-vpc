@@ -72,7 +72,6 @@ setup_nginx_conf() {
 		rate_limit_zone_conf="# Rate limiting zone - IP-based rate limiting
     limit_req_zone \$binary_remote_addr zone=ip_limit:10m rate=${rate_limit_rate};
 "
-	fi
 
 		# If RATE_LIMIT_PATHS is set, create specific location blocks for those paths
 		if [ -n "$rate_limit_paths" ]; then
