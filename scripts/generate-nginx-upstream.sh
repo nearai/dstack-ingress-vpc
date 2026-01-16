@@ -210,9 +210,8 @@ ${RATE_LIMIT_LOCATION_CONF}
         ${PROXY_CMD}_send_timeout 600;     # 10 minutes
         ${PROXY_CMD}_connect_timeout 10;   # 10 seconds
 
-        # Note: http_503 is excluded to prevent retrying rate-limited requests
-        # Rate-limited requests should fail immediately, not be retried on another backend
-        ${PROXY_CMD}_next_upstream error timeout invalid_header http_500 http_502 http_504;
+        # Retry on another backend for connection errors and 5XX responses
+        ${PROXY_CMD}_next_upstream error timeout invalid_header http_500 http_502 http_503 http_504;
         ${PROXY_CMD}_next_upstream_tries 2;
         ${PROXY_CMD}_next_upstream_timeout 30s;
     }
