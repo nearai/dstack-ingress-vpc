@@ -83,6 +83,8 @@ limit_req_status 429;
 "
 
 	# If RATE_LIMIT_PATHS is set, create specific location blocks for those paths
+	# Note: Nginx uses longest prefix matching for location blocks. If overlapping paths
+	# are specified (e.g., both /api/ and /api/chat), the longest matching prefix will be used.
 	if [ -n "$RATE_LIMIT_PATHS" ]; then
 		# Split comma-separated paths and create location blocks
 		IFS=',' read -ra PATHS <<< "$RATE_LIMIT_PATHS"
