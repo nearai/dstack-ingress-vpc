@@ -38,6 +38,9 @@ RUN mkdir -p \
     ln -sf /dev/stdout /var/log/nginx/access.log && \
     ln -sf /dev/stderr /var/log/nginx/error.log
 
+# Copy custom nginx configuration
+COPY --chmod=644 nginx.conf /etc/nginx/nginx.conf
+
 # Install scripts with deterministic permissions via bind mount
 RUN --mount=type=bind,source=scripts,target=/tmp/scripts,ro \
     /bin/bash -o pipefail -c 'set -euo pipefail; \
