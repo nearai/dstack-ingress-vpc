@@ -72,8 +72,8 @@ setup_nginx_conf() {
 		# Rate limiting zone (must be in http context, which conf.d files are included in)
 		# Set status code to 429 (Too Many Requests) instead of default 503
 		rate_limit_zone_conf="# Rate limiting zone - IP-based rate limiting
-    limit_req_zone \$binary_remote_addr zone=ip_limit:10m rate=${rate_limit_rate};
-    limit_req_status 429;
+limit_req_zone \$binary_remote_addr zone=ip_limit:10m rate=${rate_limit_rate};
+limit_req_status 429;
 "
 
 		# If RATE_LIMIT_PATHS is set, create specific location blocks for those paths
