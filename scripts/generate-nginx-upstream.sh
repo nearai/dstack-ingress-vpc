@@ -59,8 +59,70 @@ if [ -n "$CLIENT_MAX_BODY_SIZE" ]; then
 	CLIENT_MAX_BODY_SIZE_CONF="    client_max_body_size ${CLIENT_MAX_BODY_SIZE};"
 fi
 
+# Rate limiting configuration
+# RATE_LIMIT_ENABLED: enable/disable rate limiting (default: false)
+# RATE_LIMIT_RATE: requests per second (default: 10r/s)
+# RATE_LIMIT_BURST: burst size (default: 20)
+# RATE_LIMIT_PATHS: comma-separated paths to rate limit
+#   If set, rate limiting is applied only to these paths. If not set and RATE_LIMIT_ENABLED=true,
+#   rate limiting is applied to all requests (location /)
+RATE_LIMIT_ENABLED="${RATE_LIMIT_ENABLED:-false}"
+RATE_LIMIT_BURST="${RATE_LIMIT_BURST:-20}"
+RATE_LIMIT_RATE="${RATE_LIMIT_RATE:-10r/s}"
+RATE_LIMIT_PATHS="${RATE_LIMIT_PATHS:-}"
+RATE_LIMIT_LOCATION_CONF=""
+RATE_LIMIT_PATH_BLOCKS=""
+RATE_LIMIT_ZONE_CONF=""
+
+if [ "${RATE_LIMIT_ENABLED,,}" = "true" ]; then
+	# Rate limiting zone (must be in http context, which conf.d files are included in)
+	# Set status code to 429 (Too Many Requests) instead of default 503
+	RATE_LIMIT_ZONE_CONF="# Rate limiting zone - IP-based rate limiting
+limit_req_zone \$binary_remote_addr zone=ip_limit:10m rate=${RATE_LIMIT_RATE};
+limit_req_status 429;
+"
+
+	# If RATE_LIMIT_PATHS is set, create specific location blocks for those paths
+	# Note: Nginx uses longest prefix matching for location blocks. If overlapping paths
+	# are specified (e.g., both /api/ and /api/chat), the longest matching prefix will be used.
+	if [ -n "$RATE_LIMIT_PATHS" ]; then
+		# Split comma-separated paths and create location blocks
+		IFS=',' read -ra PATHS <<< "$RATE_LIMIT_PATHS"
+		for path in "${PATHS[@]}"; do
+			# Trim whitespace
+			path=$(echo "$path" | xargs)
+			if [ -n "$path" ]; then
+				RATE_LIMIT_PATH_BLOCKS="${RATE_LIMIT_PATH_BLOCKS}
+    # Rate-limited path: ${path}
+    location ${path} {
+        limit_req zone=ip_limit burst=${RATE_LIMIT_BURST} nodelay;
+        ${PROXY_CMD}_pass http://backend;
+        ${PROXY_CMD}_set_header Host \$host;
+        ${PROXY_CMD}_set_header X-Real-IP \$remote_addr;
+        ${PROXY_CMD}_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        ${PROXY_CMD}_set_header X-Forwarded-Proto \$scheme;
+
+        # Timeout configuration
+        ${PROXY_CMD}_read_timeout 600;
+        ${PROXY_CMD}_send_timeout 600;
+        ${PROXY_CMD}_connect_timeout 10;
+
+        # Retry on another backend for connection errors and 5XX responses
+        ${PROXY_CMD}_next_upstream error timeout invalid_header http_500 http_502 http_503 http_504;
+        ${PROXY_CMD}_next_upstream_tries 2;
+        ${PROXY_CMD}_next_upstream_timeout 30s;
+    }"
+			fi
+		done
+	else
+		# Apply rate limiting to general location / if no specific paths are set
+		RATE_LIMIT_LOCATION_CONF="        limit_req zone=ip_limit burst=${RATE_LIMIT_BURST} nodelay;"
+	fi
+fi
+
 # Generate the full nginx configuration
 cat <<EOF
+${RATE_LIMIT_ZONE_CONF}
 upstream backend {
 $(echo -e "$UPSTREAM_SERVERS")
     # Round-robin load balancing (default)
@@ -133,9 +195,10 @@ ${CLIENT_MAX_BODY_SIZE_CONF}
         ${PROXY_CMD}_next_upstream error timeout invalid_header;
         ${PROXY_CMD}_next_upstream_tries 2;
     }
-
+${RATE_LIMIT_PATH_BLOCKS}
     # Regular HTTP requests
     location / {
+${RATE_LIMIT_LOCATION_CONF}
         ${PROXY_CMD}_pass http://backend;
         ${PROXY_CMD}_set_header Host \$host;
         ${PROXY_CMD}_set_header X-Real-IP \$remote_addr;

@@ -86,6 +86,10 @@ services:
 - `CLIENT_MAX_BODY_SIZE` - Max request body size (e.g., `100m`)
 - `PROTOCOL` - Set to `grpc` for gRPC backends
 - `DOMAINS` - Multiple domains (newline-separated)
+- `RATE_LIMIT_ENABLED` - Enable IP rate limiting (default: false)
+- `RATE_LIMIT_RATE` - Rate limit requests per second per IP (default: `10r/s`, e.g., `20r/s`, `5r/m`)
+- `RATE_LIMIT_BURST` - Burst size for rate limiting (default: 20)
+- `RATE_LIMIT_PATHS` - Comma-separated paths to rate limit (e.g., `/v1/responses,/api/chat`). If set, rate limiting is applied only to these specific paths. If not set and `RATE_LIMIT_ENABLED=true`, rate limiting is applied to all requests.
 
 ## How It Works
 
