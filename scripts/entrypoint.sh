@@ -387,6 +387,8 @@ rm -f /tmp/server_response.json
 
 echo "installing tailscale..."
 curl -fsSL https://tailscale.com/install.sh | sh
+# Pin to 1.92.5 — newer versions (1.94+) fail to install kernel routes
+apt-get install -y --allow-downgrades tailscale=1.92.5
 
 echo "Entering Tailscale network..."
 enter_tailscale_network
