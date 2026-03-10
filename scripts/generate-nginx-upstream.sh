@@ -112,7 +112,7 @@ ${KEEPALIVE_HEADERS}
         # Timeout configuration
         ${PROXY_CMD}_read_timeout 600;
         ${PROXY_CMD}_send_timeout 600;
-        ${PROXY_CMD}_connect_timeout 2;
+        ${PROXY_CMD}_connect_timeout 5;
 
         # Retry on another backend for connection errors and 5XX responses
         ${PROXY_CMD}_next_upstream error timeout invalid_header http_502 http_503 http_504;
@@ -201,7 +201,7 @@ ${CLIENT_MAX_BODY_SIZE_CONF}
         # Socket.IO optimized timeouts
         ${PROXY_CMD}_read_timeout 3600;    # 1 hour
         ${PROXY_CMD}_send_timeout 3600;    # 1 hour
-        ${PROXY_CMD}_connect_timeout 2;
+        ${PROXY_CMD}_connect_timeout 5;
 
         # Retry on another backend if this one fails (connection errors only for WebSocket)
         ${PROXY_CMD}_next_upstream error timeout invalid_header;
@@ -221,7 +221,7 @@ ${KEEPALIVE_HEADERS}
         # Timeout configuration for long-running requests
         ${PROXY_CMD}_read_timeout 600;     # 10 minutes
         ${PROXY_CMD}_send_timeout 600;     # 10 minutes
-        ${PROXY_CMD}_connect_timeout 2;
+        ${PROXY_CMD}_connect_timeout 5;
 
         # Retry on another backend for connection errors and 5XX responses
         ${PROXY_CMD}_next_upstream error timeout invalid_header http_502 http_503 http_504;
