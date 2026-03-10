@@ -201,7 +201,7 @@ ${CLIENT_MAX_BODY_SIZE_CONF}
         # Socket.IO optimized timeouts
         ${PROXY_CMD}_read_timeout 3600;    # 1 hour
         ${PROXY_CMD}_send_timeout 3600;    # 1 hour
-        ${PROXY_CMD}_connect_timeout 5;
+        ${PROXY_CMD}_connect_timeout 60;
 
         # Retry on another backend if this one fails (connection errors only for WebSocket)
         ${PROXY_CMD}_next_upstream error timeout invalid_header;

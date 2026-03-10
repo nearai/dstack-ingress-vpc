@@ -167,7 +167,7 @@ ${client_max_body_size_conf}
         # Socket.IO optimized timeouts
         ${PROXY_CMD}_read_timeout 3600;    # 1 hour
         ${PROXY_CMD}_send_timeout 3600;    # 1 hour
-        ${PROXY_CMD}_connect_timeout 5;
+        ${PROXY_CMD}_connect_timeout 60;
     }
 ${rate_limit_path_blocks}
     # Regular HTTP requests
