@@ -97,6 +97,8 @@ limit_req_status 429;
     location ${path} {
         limit_req zone=ip_limit burst=${RATE_LIMIT_BURST} nodelay;
         ${PROXY_CMD}_pass http://backend;
+        ${PROXY_CMD}_http_version 1.1;
+        ${PROXY_CMD}_set_header Connection "";
         ${PROXY_CMD}_set_header Host \$host;
         ${PROXY_CMD}_set_header X-Real-IP \$remote_addr;
         ${PROXY_CMD}_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -109,7 +111,7 @@ limit_req_status 429;
 
         # Retry on another backend for connection errors and 5XX responses
         ${PROXY_CMD}_next_upstream error timeout invalid_header http_500 http_502 http_503 http_504;
-        ${PROXY_CMD}_next_upstream_tries 2;
+        ${PROXY_CMD}_next_upstream_tries 0;
         ${PROXY_CMD}_next_upstream_timeout 30s;
     }"
 			fi
@@ -129,6 +131,11 @@ $(echo -e "$UPSTREAM_SERVERS")
     # Two-layer health checking:
     # 1. Active checks: Only healthy nodes included (checked every 60s by daemon)
     # 2. Passive checks: Backup layer via max_fails/fail_timeout
+
+    # Reuse connections to backends (avoids TCP handshake per request over Tailscale/WG)
+    keepalive 32;
+    keepalive_requests 1000;
+    keepalive_timeout 60s;
 }
 
 server {
@@ -193,13 +200,15 @@ ${CLIENT_MAX_BODY_SIZE_CONF}
 
         # Retry on another backend if this one fails (connection errors only for WebSocket)
         ${PROXY_CMD}_next_upstream error timeout invalid_header;
-        ${PROXY_CMD}_next_upstream_tries 2;
+        ${PROXY_CMD}_next_upstream_tries 0;
     }
 ${RATE_LIMIT_PATH_BLOCKS}
     # Regular HTTP requests
     location / {
 ${RATE_LIMIT_LOCATION_CONF}
         ${PROXY_CMD}_pass http://backend;
+        ${PROXY_CMD}_http_version 1.1;
+        ${PROXY_CMD}_set_header Connection "";
         ${PROXY_CMD}_set_header Host \$host;
         ${PROXY_CMD}_set_header X-Real-IP \$remote_addr;
         ${PROXY_CMD}_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -212,7 +221,7 @@ ${RATE_LIMIT_LOCATION_CONF}
 
         # Retry on another backend for connection errors and 5XX responses
         ${PROXY_CMD}_next_upstream error timeout invalid_header http_500 http_502 http_503 http_504;
-        ${PROXY_CMD}_next_upstream_tries 2;
+        ${PROXY_CMD}_next_upstream_tries 0;
         ${PROXY_CMD}_next_upstream_timeout 30s;
     }
 
