@@ -27,11 +27,13 @@ if ! echo "$TAILSCALE_STATUS" | jq empty 2>/dev/null; then
     exit 1
 fi
 
-# Debug: Log all available nodes to stderr for troubleshooting
-echo "Debug: Available Tailscale nodes:" >&2
-echo "$TAILSCALE_STATUS" | jq -r '.Peer // {} | to_entries[] | "  Peer: \(.value.HostName) (\(.value.DNSName // "no DNS"))"' >&2
-echo "$TAILSCALE_STATUS" | jq -r '.Self // {} | "  Self: \(.HostName) (\(.DNSName // "no DNS"))"' >&2
-echo "Debug: Looking for nodes with prefix: $TARGET_NODE_PREFIX" >&2
+# Debug logging (enable with DEBUG=1)
+if [ "${DEBUG:-0}" = "1" ]; then
+    echo "Debug: Available Tailscale nodes:" >&2
+    echo "$TAILSCALE_STATUS" | jq -r '.Peer // {} | to_entries[] | "  Peer: \(.value.HostName) (\(.value.DNSName // "no DNS"))"' >&2
+    echo "$TAILSCALE_STATUS" | jq -r '.Self // {} | "  Self: \(.HostName) (\(.DNSName // "no DNS"))"' >&2
+    echo "Debug: Looking for nodes with prefix: $TARGET_NODE_PREFIX" >&2
+fi
 
 # Parse JSON to find nodes matching the prefix
 # Extract the hostname/DNSName for each matching node

@@ -27,8 +27,6 @@ fi
 
 # Function to discover and update backends
 update_backends() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Discovering backend nodes..."
-
     # Discover nodes matching the prefix
     # Stderr passes through to system logs
     DISCOVERY_OUTPUT=$("${SCRIPT_DIR}/discover-nodes.sh")
@@ -53,8 +51,6 @@ update_backends() {
         return 1
     fi
 
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Found ${NODE_COUNT} node(s), checking health..."
-
     # Health check each node in parallel and filter to only healthy ones
     TMP_RESULTS_DIR=$(mktemp -d)
     trap 'rm -rf "$TMP_RESULTS_DIR"' RETURN
@@ -62,7 +58,7 @@ update_backends() {
     check_node_health() {
         local node=$1
         local output_file=$2
-        
+
         if [ -z "$node" ]; then
             return
         fi
@@ -72,18 +68,16 @@ update_backends() {
             # HTTP health check
             HEALTH_URL="http://${node}:${TARGET_PORT}${NODE_HEALTH_CHECK}"
             if curl -sf --connect-timeout 5 --max-time 10 "$HEALTH_URL" >/dev/null 2>&1; then
-                echo "  - $node [HEALTHY]"
                 echo "$node" >> "$output_file"
             else
-                echo "  - $node [UNHEALTHY] - removing from pool"
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')]   $node [UNHEALTHY] - removing from pool"
             fi
         else
             # TCP port check only
             if timeout 5 bash -c "cat < /dev/null > /dev/tcp/${node}/${TARGET_PORT}" 2>/dev/null; then
-                echo "  - $node [HEALTHY]"
                 echo "$node" >> "$output_file"
             else
-                echo "  - $node [UNHEALTHY] - removing from pool"
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')]   $node [UNHEALTHY] - removing from pool"
             fi
         fi
     }
@@ -120,8 +114,6 @@ update_backends() {
         return 1
     fi
 
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] ${HEALTHY_COUNT} healthy node(s) available"
-
     # Use healthy nodes for comparison
     DISCOVERED_NODES="$HEALTHY_NODES"
 
@@ -136,7 +128,7 @@ update_backends() {
     fi
 
     if [ "$NODES_CHANGED" = true ]; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Backend nodes changed, updating nginx configuration..."
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Backend nodes changed (${HEALTHY_COUNT} healthy), updating nginx..."
 
         # Generate new nginx configuration
         NEW_CONFIG=$(echo "$DISCOVERED_NODES" | "${SCRIPT_DIR}/generate-nginx-upstream.sh" 2>&1) || {
@@ -154,7 +146,6 @@ update_backends() {
         fi
 
         # Reload nginx gracefully
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Reloading nginx..."
         nginx -s reload
 
         # Save current nodes
@@ -175,17 +166,13 @@ update_backends() {
             fi
         fi
 
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Backend update completed successfully"
-    else
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] No changes detected, skipping update"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Backend update completed"
     fi
 }
 
 # Initial update - keep retrying until we have at least one node
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Performing initial backend discovery..."
 while true; do
     if update_backends; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Initial backend configuration completed"
         break
     fi
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Retrying in ${UPDATE_INTERVAL} seconds..."
@@ -193,7 +180,6 @@ while true; do
 done
 
 # Main loop - continue checking for updates
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] Starting periodic backend monitoring..."
 while true; do
     sleep "$UPDATE_INTERVAL"
 
