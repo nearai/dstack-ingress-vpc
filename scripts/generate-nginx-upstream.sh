@@ -22,8 +22,14 @@ fi
 
 # Determine proxy command (proxy or grpc)
 PROXY_CMD="proxy"
+KEEPALIVE_HEADERS=""
 if [[ "${TARGET_ENDPOINT}" == grpc://* ]] || [[ "${PROTOCOL}" == "grpc" ]]; then
 	PROXY_CMD="grpc"
+else
+	# HTTP/1.1 + empty Connection header required for nginx upstream keepalive
+	# (grpc module always uses HTTP/2 internally, no equivalent directive needed)
+	KEEPALIVE_HEADERS="        proxy_http_version 1.1;
+        proxy_set_header Connection \"\";"
 fi
 
 # Read nodes from stdin into an array
@@ -97,8 +103,7 @@ limit_req_status 429;
     location ${path} {
         limit_req zone=ip_limit burst=${RATE_LIMIT_BURST} nodelay;
         ${PROXY_CMD}_pass http://backend;
-        ${PROXY_CMD}_http_version 1.1;
-        ${PROXY_CMD}_set_header Connection "";
+${KEEPALIVE_HEADERS}
         ${PROXY_CMD}_set_header Host \$host;
         ${PROXY_CMD}_set_header X-Real-IP \$remote_addr;
         ${PROXY_CMD}_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -110,7 +115,7 @@ limit_req_status 429;
         ${PROXY_CMD}_connect_timeout 2;
 
         # Retry on another backend for connection errors and 5XX responses
-        ${PROXY_CMD}_next_upstream error timeout invalid_header http_500 http_502 http_503 http_504;
+        ${PROXY_CMD}_next_upstream error timeout invalid_header http_502 http_503 http_504;
         ${PROXY_CMD}_next_upstream_tries 0;
         ${PROXY_CMD}_next_upstream_timeout 10s;
     }"
@@ -207,8 +212,7 @@ ${RATE_LIMIT_PATH_BLOCKS}
     location / {
 ${RATE_LIMIT_LOCATION_CONF}
         ${PROXY_CMD}_pass http://backend;
-        ${PROXY_CMD}_http_version 1.1;
-        ${PROXY_CMD}_set_header Connection "";
+${KEEPALIVE_HEADERS}
         ${PROXY_CMD}_set_header Host \$host;
         ${PROXY_CMD}_set_header X-Real-IP \$remote_addr;
         ${PROXY_CMD}_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -220,7 +224,7 @@ ${RATE_LIMIT_LOCATION_CONF}
         ${PROXY_CMD}_connect_timeout 2;
 
         # Retry on another backend for connection errors and 5XX responses
-        ${PROXY_CMD}_next_upstream error timeout invalid_header http_500 http_502 http_503 http_504;
+        ${PROXY_CMD}_next_upstream error timeout invalid_header http_502 http_503 http_504;
         ${PROXY_CMD}_next_upstream_tries 0;
         ${PROXY_CMD}_next_upstream_timeout 10s;
     }
