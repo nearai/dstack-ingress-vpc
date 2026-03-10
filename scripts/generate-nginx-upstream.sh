@@ -22,8 +22,14 @@ fi
 
 # Determine proxy command (proxy or grpc)
 PROXY_CMD="proxy"
+KEEPALIVE_HEADERS=""
 if [[ "${TARGET_ENDPOINT}" == grpc://* ]] || [[ "${PROTOCOL}" == "grpc" ]]; then
 	PROXY_CMD="grpc"
+else
+	# HTTP/1.1 + empty Connection header required for nginx upstream keepalive
+	# (grpc module always uses HTTP/2 internally, no equivalent directive needed)
+	KEEPALIVE_HEADERS="        proxy_http_version 1.1;
+        proxy_set_header Connection \"\";"
 fi
 
 # Read nodes from stdin into an array
@@ -97,6 +103,7 @@ limit_req_status 429;
     location ${path} {
         limit_req zone=ip_limit burst=${RATE_LIMIT_BURST} nodelay;
         ${PROXY_CMD}_pass http://backend;
+${KEEPALIVE_HEADERS}
         ${PROXY_CMD}_set_header Host \$host;
         ${PROXY_CMD}_set_header X-Real-IP \$remote_addr;
         ${PROXY_CMD}_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -105,12 +112,12 @@ limit_req_status 429;
         # Timeout configuration
         ${PROXY_CMD}_read_timeout 600;
         ${PROXY_CMD}_send_timeout 600;
-        ${PROXY_CMD}_connect_timeout 10;
+        ${PROXY_CMD}_connect_timeout 5;
 
         # Retry on another backend for connection errors and 5XX responses
-        ${PROXY_CMD}_next_upstream error timeout invalid_header http_500 http_502 http_503 http_504;
-        ${PROXY_CMD}_next_upstream_tries 2;
-        ${PROXY_CMD}_next_upstream_timeout 30s;
+        ${PROXY_CMD}_next_upstream error timeout invalid_header http_502 http_503 http_504;
+        ${PROXY_CMD}_next_upstream_tries 0;
+        ${PROXY_CMD}_next_upstream_timeout 10s;
     }"
 			fi
 		done
@@ -129,6 +136,11 @@ $(echo -e "$UPSTREAM_SERVERS")
     # Two-layer health checking:
     # 1. Active checks: Only healthy nodes included (checked every 60s by daemon)
     # 2. Passive checks: Backup layer via max_fails/fail_timeout
+
+    # Reuse connections to backends (avoids TCP handshake per request over Tailscale/WG)
+    keepalive 32;
+    keepalive_requests 1000;
+    keepalive_timeout 60s;
 }
 
 server {
@@ -189,17 +201,18 @@ ${CLIENT_MAX_BODY_SIZE_CONF}
         # Socket.IO optimized timeouts
         ${PROXY_CMD}_read_timeout 3600;    # 1 hour
         ${PROXY_CMD}_send_timeout 3600;    # 1 hour
-        ${PROXY_CMD}_connect_timeout 600;  # 20 minute
+        ${PROXY_CMD}_connect_timeout 60;
 
         # Retry on another backend if this one fails (connection errors only for WebSocket)
         ${PROXY_CMD}_next_upstream error timeout invalid_header;
-        ${PROXY_CMD}_next_upstream_tries 2;
+        ${PROXY_CMD}_next_upstream_tries 0;
     }
 ${RATE_LIMIT_PATH_BLOCKS}
     # Regular HTTP requests
     location / {
 ${RATE_LIMIT_LOCATION_CONF}
         ${PROXY_CMD}_pass http://backend;
+${KEEPALIVE_HEADERS}
         ${PROXY_CMD}_set_header Host \$host;
         ${PROXY_CMD}_set_header X-Real-IP \$remote_addr;
         ${PROXY_CMD}_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
@@ -208,12 +221,12 @@ ${RATE_LIMIT_LOCATION_CONF}
         # Timeout configuration for long-running requests
         ${PROXY_CMD}_read_timeout 600;     # 10 minutes
         ${PROXY_CMD}_send_timeout 600;     # 10 minutes
-        ${PROXY_CMD}_connect_timeout 10;   # 10 seconds
+        ${PROXY_CMD}_connect_timeout 5;
 
         # Retry on another backend for connection errors and 5XX responses
-        ${PROXY_CMD}_next_upstream error timeout invalid_header http_500 http_502 http_503 http_504;
-        ${PROXY_CMD}_next_upstream_tries 2;
-        ${PROXY_CMD}_next_upstream_timeout 30s;
+        ${PROXY_CMD}_next_upstream error timeout invalid_header http_502 http_503 http_504;
+        ${PROXY_CMD}_next_upstream_tries 0;
+        ${PROXY_CMD}_next_upstream_timeout 10s;
     }
 
     location /evidences/ {
