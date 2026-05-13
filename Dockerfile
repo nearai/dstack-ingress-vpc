@@ -1,10 +1,18 @@
-FROM nginx@sha256:b6653fca400812e81569f9be762ae315db685bc30b12ddcdc8616c63a227d3ca
+# nginx:1.29-bookworm (nginx 1.29.1) — current stable line with HTTP/3 / QUIC
+# compiled in via --with-http_v3_module. Verified with:
+#   docker run --rm <digest> nginx -V 2>&1 | grep http_v3
+# Pinned by digest for reproducibility, same pattern as the previous pin.
+# (The previous pin b6653fca was nginx 1.27.4-bookworm; bumping to the
+# current stable line so we ship on a supported HTTP/3 implementation.)
+FROM nginx@sha256:8adbdcb969e2676478ee2c7ad333956f0c8e0e4c5a7463f4611d7a2e7a7ff5dc
 
 RUN --mount=type=bind,source=pinned-packages.txt,target=/tmp/pinned-packages.txt,ro \
     set -e; \
-    # Create a sources.list file pointing to a specific snapshot
-    echo 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20250411T024939Z bookworm main' > /etc/apt/sources.list && \
-    echo 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian-security/20250411T024939Z bookworm-security main' >> /etc/apt/sources.list && \
+    # Create a sources.list file pointing to a specific snapshot.
+    # Snapshot date is aligned with the nginx:1.29-bookworm image push date
+    # (2025-09-30) so apt sees package versions consistent with the base image.
+    echo 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian/20250930T000000Z bookworm main' > /etc/apt/sources.list && \
+    echo 'deb [check-valid-until=no] https://snapshot.debian.org/archive/debian-security/20250930T000000Z bookworm-security main' >> /etc/apt/sources.list && \
     echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/10no-check-valid-until && \
     # Create preferences file to pin all packages
     rm -rf /etc/apt/sources.list.d/debian.sources && \

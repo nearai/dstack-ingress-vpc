@@ -111,8 +111,21 @@ limit_req_status 429;
 ${rate_limit_zone_conf}
 server {
     listen ${PORT} ssl;
+    listen [::]:${PORT} ssl;
+    # HTTP/3 over QUIC (UDP). \`reuseport\` is placed here because this is the
+    # only server block generated in single-target mode — putting it on the
+    # sole UDP/${PORT} listener is the canonical nginx-quic pattern. If you
+    # ever add more server blocks listening on the same UDP port, only ONE
+    # may carry \`reuseport\`; the rest must be plain \`listen ${PORT} quic;\`.
+    listen ${PORT} quic reuseport;
+    listen [::]:${PORT} quic reuseport;
     http2 on;
+    http3 on;
     server_name ${DOMAIN};
+
+    # Advertise HTTP/3 to HTTP/1.1+HTTP/2 clients so they may upgrade on
+    # subsequent requests. ma=86400 caches the hint for 24h.
+    add_header Alt-Svc 'h3=":${PORT}"; ma=86400' always;
 
     # SSL certificate configuration
     ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;

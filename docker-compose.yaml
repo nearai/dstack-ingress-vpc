@@ -2,7 +2,11 @@ services:
   dstack-ingress:
     image: dstacktee/dstack-ingress:20250929@sha256:2b47b3e538df0b3e7724255b89369194c8c83a7cfba64d2faf0115ad0a586458
     ports:
-      - "443:443"
+      - "443:443/tcp"
+      # HTTP/3 / QUIC. The host-side firewall (iptables / nftables / SLIRP)
+      # must also forward inbound UDP/443 to the CVM — see PR body deploy
+      # checklist for host-level prerequisites.
+      - "443:443/udp"
     environment:
       - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
       - DOMAIN=${DOMAIN}

@@ -2,7 +2,11 @@ services:
   ingress:
     image: dstacktee/dstack-ingress:20250929@sha256:2b47b3e538df0b3e7724255b89369194c8c83a7cfba64d2faf0115ad0a586458
     ports:
-      - "443:443"
+      - "443:443/tcp"
+      # HTTP/3 / QUIC. The host-side firewall (iptables / nftables / SLIRP)
+      # must also forward inbound UDP/443 to the CVM — see PR body deploy
+      # checklist for host-level prerequisites.
+      - "443:443/udp"
     environment:
       DNS_PROVIDER: cloudflare
       CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN}
@@ -39,11 +43,21 @@ volumes:
   letsencrypt:
 
 configs:
+  # HTTP/3 / QUIC note: only ONE server block in the full nginx config may
+  # carry `reuseport` on a given UDP port. app_conf owns it (first server
+  # block); api_conf uses a plain `listen 443 quic;` without reuseport.
   app_conf:
     content: |
       server {
           listen 443 ssl;
+          listen [::]:443 ssl;
+          listen 443 quic reuseport;
+          listen [::]:443 quic reuseport;
+          http2 on;
+          http3 on;
           server_name ${APP_DOMAIN};
+
+          add_header Alt-Svc 'h3=":443"; ma=86400' always;
 
           ssl_certificate /etc/letsencrypt/live/${APP_DOMAIN}/fullchain.pem;
           ssl_certificate_key /etc/letsencrypt/live/${APP_DOMAIN}/privkey.pem;
@@ -56,7 +70,15 @@ configs:
     content: |
       server {
           listen 443 ssl;
+          listen [::]:443 ssl;
+          # No `reuseport` here — app_conf above already claimed it.
+          listen 443 quic;
+          listen [::]:443 quic;
+          http2 on;
+          http3 on;
           server_name ${API_DOMAIN};
+
+          add_header Alt-Svc 'h3=":443"; ma=86400' always;
 
           ssl_certificate /etc/letsencrypt/live/${API_DOMAIN}/fullchain.pem;
           ssl_certificate_key /etc/letsencrypt/live/${API_DOMAIN}/privkey.pem;
