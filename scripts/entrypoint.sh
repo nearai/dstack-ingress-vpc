@@ -93,6 +93,8 @@ limit_req_status 429;
         ${PROXY_CMD}_set_header X-Real-IP \$remote_addr;
         ${PROXY_CMD}_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         ${PROXY_CMD}_set_header X-Forwarded-Proto \$scheme;
+        # Forward TLS 0-RTT indicator so backends can reject Early-Data on non-idempotent methods
+        ${PROXY_CMD}_set_header Early-Data \$ssl_early_data;
 
         # Timeout configuration
         ${PROXY_CMD}_read_timeout 600;
@@ -137,16 +139,21 @@ server {
     resolver 8.8.8.8 8.8.4.4 valid=300s;
     resolver_timeout 5s;
 
-    # SSL session configuration
+    # SSL session configuration — shared cache + tickets for 1-RTT resumption.
+    # 50m ~= 200k sessions, far more than any single CVM needs.
+    # ssl_session_tickets: nginx rotates ticket keys on reload — sufficient for a
+    # single-replica CVM. Cluster deployments would need an external rotated key file.
     ssl_session_timeout 1d;
     ssl_session_cache shared:SSL:50m;
-    ssl_session_tickets off;
+    ssl_session_tickets on;
 
     # SSL buffer size (optimized for TLS 1.3)
     ssl_buffer_size 4k;
 
-    # Disable SSL renegotiation
-    ssl_early_data off;
+    # TLS 1.3 0-RTT — saves the final RTT on resumed sessions.
+    # WARNING: 0-RTT data is replayable. The Early-Data header is forwarded to
+    # backends below so they can reject 0-RTT on non-idempotent methods.
+    ssl_early_data on;
 ${client_max_body_size_conf}
 
     # WebSocket support - handles both /ws/ and /socket.io/ paths
@@ -161,6 +168,8 @@ ${client_max_body_size_conf}
         ${PROXY_CMD}_set_header X-Real-IP \$remote_addr;
         ${PROXY_CMD}_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         ${PROXY_CMD}_set_header X-Forwarded-Proto \$scheme;
+        # Forward TLS 0-RTT indicator so backends can reject Early-Data on non-idempotent methods
+        ${PROXY_CMD}_set_header Early-Data \$ssl_early_data;
 
         ${PROXY_CMD}_cache_bypass \$http_upgrade;
 
@@ -178,6 +187,8 @@ ${rate_limit_location_conf}
         ${PROXY_CMD}_set_header X-Real-IP \$remote_addr;
         ${PROXY_CMD}_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         ${PROXY_CMD}_set_header X-Forwarded-Proto \$scheme;
+        # Forward TLS 0-RTT indicator so backends can reject Early-Data on non-idempotent methods
+        ${PROXY_CMD}_set_header Early-Data \$ssl_early_data;
 
         # Timeout configuration for long-running requests
         ${PROXY_CMD}_read_timeout 600;     # 10 minutes
