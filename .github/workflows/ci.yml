@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  validation:
+    name: Build and syntax checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Check shell scripts
+        run: |
+          bash -n build-image.sh
+          find scripts -name '*.sh' -print0 | xargs -0 -r bash -n
+
+      - name: Check Python syntax
+        run: python3 -m compileall scripts
+
+      - name: Build container image
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD > .GIT_REV
+          docker buildx build --load -t dstack-ingress-vpc-ci:${{ github.sha }} .
