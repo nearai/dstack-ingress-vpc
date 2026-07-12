@@ -6,6 +6,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -13,14 +17,15 @@ jobs:
   validation:
     name: Build and syntax checks
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
       - name: Check shell scripts
         run: |
           bash -n build-image.sh
-          find scripts -name '*.sh' -print0 | xargs -0 -r bash -n
+          find scripts -name '*.sh' -print0 | xargs -0 -r -n1 bash -n
 
       - name: Check Python syntax
         run: python3 -m compileall scripts
